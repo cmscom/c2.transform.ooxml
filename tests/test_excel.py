@@ -8,6 +8,7 @@ from c2.transform.ooxml.package import LimitReached
 from c2.transform.ooxml.package import TextSink
 from tests.builders import build_xlsx
 from tests.builders import x_row
+from tests.builders import xml
 
 import io
 import pytest
@@ -180,3 +181,54 @@ def test_a_row_is_not_joined_before_the_limit(monkeypatch):
         extract_excel(zf, "xl/workbook.xml", sink, budget)
     assert max(sizes) <= 200
     assert len(sink.text()) == 100
+
+
+def _with_part(data: bytes, name: str, content: str) -> bytes:
+    buffer = io.BytesIO()
+    source = zipfile.ZipFile(io.BytesIO(data))
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+        for item in source.namelist():
+            body = content.encode() if item == name else source.read(item)
+            target.writestr(item, body)
+    return buffer.getvalue()
+
+
+def _alternate(choice: str, fallback: str) -> str:
+    return (
+        "<mc:AlternateContent><mc:Choice Requires='x14'>"
+        f"{choice}</mc:Choice><mc:Fallback>{fallback}</mc:Fallback>"
+        "</mc:AlternateContent>"
+    )
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_fallback_rows_skipped(strict):
+    row = x_row("i:ONCE")
+    data = build_xlsx([("S", _alternate(row, row))], strict=strict)
+    assert excel_text(data) == "S\nONCE\n"
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_fallback_shared_strings_skipped(strict):
+    # The string after the AlternateContent is number 1, not 2.
+    shared = ["<s:t>A</s:t>", "<s:t>B</s:t>"]
+    data = build_xlsx([("S", x_row("s:0", "s:1"))], shared=shared, strict=strict)
+    sst = xml(
+        "s:sst",
+        _alternate("<s:si><s:t>A</s:t></s:si>", "<s:si><s:t>A</s:t></s:si>")
+        + "<s:si><s:t>B</s:t></s:si>",
+        strict,
+    )
+    data = _with_part(data, "xl/sharedStrings.xml", sst)
+    assert excel_text(data) == "S\nA\tB\n"
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_fallback_sheets_skipped(strict):
+    data = build_xlsx([("S", x_row("1"))], strict=strict)
+    sheet = '<s:sheet name="S" sheetId="1" r:id="rIdS1"/>'
+    workbook = xml(
+        "s:workbook", f"<s:sheets>{_alternate(sheet, sheet)}</s:sheets>", strict
+    )
+    data = _with_part(data, "xl/workbook.xml", workbook)
+    assert excel_text(data) == "S\n1\n"

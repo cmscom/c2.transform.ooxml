@@ -1,4 +1,7 @@
-"""The text of Excel workbooks (xlsx, xltx, xlsm, xltm)."""
+"""The text of Excel workbooks (xlsx, xltx, xlsm, xltm).
+
+``mc:Fallback`` repeats ``mc:Choice``, so it is skipped in every part.
+"""
 
 from c2.transform.ooxml.package import Budget
 from c2.transform.ooxml.package import is_el
@@ -6,6 +9,7 @@ from c2.transform.ooxml.package import iter_xml
 from c2.transform.ooxml.package import r_id
 from c2.transform.ooxml.package import relationships
 from c2.transform.ooxml.package import TextSink
+from c2.transform.ooxml.package import without_fallback
 
 import zipfile
 
@@ -16,7 +20,7 @@ def _sheets(
     """(name, r:id) of every sheet, hidden ones too, in the workbook order."""
     return [
         (element.get("name") or "", r_id(element))
-        for event, element in iter_xml(zf, main, budget)
+        for event, element in without_fallback(iter_xml(zf, main, budget))
         if event == "start" and is_el(element, "s", "sheet")
     ]
 
@@ -32,7 +36,7 @@ def _shared_strings(
     strings: list[str] = []
     current: list[str] = []
     phonetic = 0
-    for event, element in iter_xml(zf, name, budget):
+    for event, element in without_fallback(iter_xml(zf, name, budget)):
         if is_el(element, "s", "rPh"):
             phonetic += 1 if event == "start" else -1
             continue
@@ -114,7 +118,7 @@ def _write_sheet(
     row = _RowWriter(sink)
     cell: _Cell | None = None
     phonetic = 0
-    for event, element in iter_xml(zf, name, budget):
+    for event, element in without_fallback(iter_xml(zf, name, budget)):
         if is_el(element, "s", "rPh"):
             phonetic += 1 if event == "start" else -1
         elif event == "start":

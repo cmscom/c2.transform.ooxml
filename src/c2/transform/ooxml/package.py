@@ -299,6 +299,18 @@ def iter_xml(
                         del parent[0]
 
 
+def without_fallback(
+    events: Iterator[tuple[str, etree._Element]],
+) -> Iterator[tuple[str, etree._Element]]:
+    """The events outside ``mc:Fallback``, which repeats ``mc:Choice``."""
+    skipping = 0
+    for event, element in events:
+        if is_el(element, "mc", "Fallback"):
+            skipping += 1 if event == "start" else -1
+        elif not skipping:
+            yield event, element
+
+
 def _rels_name(part: str) -> str:
     folder, name = posixpath.split(part)
     return posixpath.join(folder, "_rels", f"{name}.rels")
