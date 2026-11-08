@@ -72,17 +72,15 @@ apply to one document:
 | Number of parts read | 5,000 |
 | Length of the text | 10,000,000 characters |
 | Time | 30 seconds |
-| Number of entries in the zip | 10,000 |
-| Size of the central directory of the zip | 16 MiB |
+| Size of the central directory of the zip (about 45,000 entries) | 2 MiB |
 
 - The time limit usually stops the reading first: at the speed measured
   below, reading 64 MiB parts up to 256 MiB in all would take about a
   minute.
 - The sizes are counted while the parts are read; the sizes that the zip
   declares are not trusted.
-- The number of entries and the size of the central directory are checked
-  before the zip is opened; the entries are counted, not taken from the
-  end record.
+- The size of the central directory is checked before the zip is opened,
+  as zipfile will read it; it also limits the number of entries.
 - Only parts that are stored or compressed with deflate (as Office writes
   them) are read. A part compressed with another method (such as bzip2,
   LZMA or Zstandard) is treated as a broken part.

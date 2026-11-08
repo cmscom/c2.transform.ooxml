@@ -340,17 +340,22 @@ def test_broken_xml_message_is_not_logged(caplog):
     assert "secretword" not in caplog.text
 
 
-def _to_zip64(data: bytes, sentinels: bool = True) -> bytes:
+def _to_zip64(
+    data: bytes, sentinels: bool = True, zip64_count: int | None = None
+) -> bytes:
     """``data`` with a Zip64 end of central directory (and its locator).
 
     The counts and sizes of the classic record are set to 0xFFFF... (the
-    sentinels), or to 0 (zipfile still takes the Zip64 values)."""
+    sentinels), or to 0 (zipfile still takes the Zip64 values).
+    ``zip64_count`` replaces the numbers of entries of the Zip64 record."""
     import struct
 
     pos = data.rfind(b"PK\x05\x06")
     _sig, _disk, _cd_disk, n_disk, n_total, cd_size, cd_offset, _comment = (
         struct.unpack_from("<4s4H2LH", data, pos)
     )
+    if zip64_count is not None:
+        n_disk = n_total = zip64_count
     zip64 = struct.pack(
         "<4sQ2H2L4Q",
         b"PK\x06\x06",
@@ -406,36 +411,12 @@ def zipfile_reads(monkeypatch):
     return reads
 
 
-def test_too_many_entries_are_not_read(monkeypatch, caplog, zipfile_reads):
-    monkeypatch.setattr(config, "MAX_ENTRIES", 10)
-    data = _many_entries(20)
-    zipfile_reads.clear()
-    with caplog.at_level(logging.WARNING, logger=LOGGER):
-        assert extract_text(data) == ""
-    assert zipfile_reads == []
-    assert "entries" in caplog.text
-
-
-def test_entries_within_the_limit(monkeypatch, zipfile_reads):
-    monkeypatch.setattr(config, "MAX_ENTRIES", 30)
+def test_central_directory_within_the_limit(monkeypatch, zipfile_reads):
+    monkeypatch.setattr(config, "MAX_CENTRAL_DIRECTORY_BYTES", 2000)
     data = _many_entries(20)
     zipfile_reads.clear()
     assert extract_text(data) == "本文\n"
     assert len(zipfile_reads) == 1
-
-
-def test_a_lying_count_of_entries(monkeypatch, caplog, zipfile_reads):
-    # The end record says 1 entry; the central directory has 32.
-    import struct
-
-    monkeypatch.setattr(config, "MAX_ENTRIES", 10)
-    data = bytearray(_many_entries(20))
-    pos = data.rfind(b"PK\x05\x06")
-    struct.pack_into("<2H", data, pos + 8, 1, 1)
-    zipfile_reads.clear()
-    with caplog.at_level(logging.WARNING, logger=LOGGER):
-        assert extract_text(bytes(data)) == ""
-    assert zipfile_reads == []
 
 
 def test_central_directory_size_limit(monkeypatch, caplog, zipfile_reads):
@@ -452,15 +433,6 @@ def test_zip64_end_record():
     assert extract_text(_to_zip64(build_docx(w_p("本文")))) == "本文\n"
 
 
-def test_zip64_too_many_entries(monkeypatch, caplog, zipfile_reads):
-    monkeypatch.setattr(config, "MAX_ENTRIES", 10)
-    data = _to_zip64(_many_entries(20))
-    zipfile_reads.clear()
-    with caplog.at_level(logging.WARNING, logger=LOGGER):
-        assert extract_text(data) == ""
-    assert zipfile_reads == []
-
-
 def _signature_in_offset(data: bytes) -> bytes:
     """``data`` with the offset of the central directory in the classic end
     record set to 0x06054b50, the bytes of the signature of that record.
@@ -474,12 +446,9 @@ def _signature_in_offset(data: bytes) -> bytes:
     return bytes(out)
 
 
-@pytest.mark.parametrize(
-    ("limit", "value"), [("MAX_ENTRIES", 10), ("MAX_CENTRAL_DIRECTORY_BYTES", 100)]
-)
 @pytest.mark.parametrize("shape", ["zip64-without-sentinels", "signature-in-offset"])
 def test_central_directory_check_is_not_bypassed(
-    monkeypatch, caplog, zipfile_reads, limit, value, shape
+    monkeypatch, caplog, zipfile_reads, shape
 ):
     data = _many_entries(20)
     if shape == "zip64-without-sentinels":
@@ -492,7 +461,7 @@ def test_central_directory_check_is_not_bypassed(
     extract_text(data)
     assert len(zipfile_reads) == 1
     zipfile_reads.clear()
-    monkeypatch.setattr(config, limit, value)
+    monkeypatch.setattr(config, "MAX_CENTRAL_DIRECTORY_BYTES", 100)
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         assert extract_text(data) == ""
     assert zipfile_reads == []
@@ -509,3 +478,38 @@ def test_central_directory_cannot_be_checked(monkeypatch, caplog, zipfile_reads)
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         assert extract_text(data) == ""
     assert zipfile_reads == []
+
+
+def _python311_shape(data: bytes, sentinels: bool, prefix: bool) -> bytes:
+    """Zip64 with its own numbers of entries set to 0, with or without the
+    sentinels in the classic record, with or without bytes before the zip.
+    (Python 3.11 corrects the start of the central directory for Zip64 in
+    another place than Python 3.10 and 3.12.)"""
+    data = _to_zip64(data, sentinels=sentinels, zip64_count=0)
+    return b"\0" * 192 + data if prefix else data
+
+
+@pytest.mark.parametrize("prefix", [False, True])
+@pytest.mark.parametrize("sentinels", [False, True])
+def test_central_directory_size_with_zip64_shapes(
+    monkeypatch, caplog, zipfile_reads, sentinels, prefix
+):
+    data = _python311_shape(_many_entries(20), sentinels, prefix)
+    zipfile_reads.clear()
+    extract_text(data)
+    assert len(zipfile_reads) == 1
+    zipfile_reads.clear()
+    monkeypatch.setattr(config, "MAX_CENTRAL_DIRECTORY_BYTES", 100)
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert zipfile_reads == []
+
+
+def test_default_limit_stops_a_large_central_directory(caplog, zipfile_reads):
+    # About 50,000 entries: a central directory over 2 MiB.
+    data = _python311_shape(_many_entries(50_000), sentinels=False, prefix=False)
+    zipfile_reads.clear()
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert zipfile_reads == []
+    assert "central directory" in caplog.text

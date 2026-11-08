@@ -17,10 +17,10 @@ MAX_PARTS = 5000
 MAX_TEXT_CHARS = 10_000_000
 # The time spent on one document.
 TIME_LIMIT_SECONDS = 30.0
-# Checked before zipfile reads the central directory of the zip: the
-# number of entries and the size of the central directory.
-MAX_ENTRIES = 10_000
-MAX_CENTRAL_DIRECTORY_BYTES = 16 * 1024 * 1024
+# The size of the central directory of the zip, checked before zipfile
+# reads it. An entry takes at least 46 bytes there, so this also limits
+# the number of entries (to about 45,000).
+MAX_CENTRAL_DIRECTORY_BYTES = 2 * 1024 * 1024
 
 _WORD = "application/vnd.openxmlformats-officedocument.wordprocessingml"
 _EXCEL = "application/vnd.openxmlformats-officedocument.spreadsheetml"
