@@ -188,9 +188,13 @@ def iter_xml(
             yield event, element
             if event == "end":
                 element.clear()
-                # Drop the elements read before it, too.
-                while element.getprevious() is not None:
-                    del element.getparent()[0]
+                # Drop the elements read before it, too. The root has no
+                # parent, but a comment or a PI before it is its previous
+                # sibling: those stay.
+                parent = element.getparent()
+                if parent is not None:
+                    while element.getprevious() is not None:
+                        del parent[0]
 
 
 def _rels_name(part: str) -> str:

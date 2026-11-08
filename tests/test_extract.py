@@ -201,3 +201,16 @@ def test_encrypted_entry_returns_empty(caplog):
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         assert extract_text(bytes(data)) == ""
     assert "RuntimeError" in caplog.text
+
+
+def test_comment_before_the_root_of_a_part():
+    data = build_zip({
+        "_rels/.rels": root_rels("word/document.xml"),
+        "word/document.xml": (
+            '<?xml version="1.0"?><!-- generated -->'
+            "<w:document xmlns:w='http://schemas.openxmlformats.org/"
+            "wordprocessingml/2006/main'><w:body><w:p><w:r><w:t>本文</w:t>"
+            "</w:r></w:p></w:body></w:document>"
+        ),
+    })
+    assert extract_text(data) == "本文\n"

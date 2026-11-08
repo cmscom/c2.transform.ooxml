@@ -313,3 +313,14 @@ def test_r_id(uri):
 
 def test_r_id_missing():
     assert package.r_id(etree.Element("sheet", {"id": "rId7"})) is None
+
+
+def test_comment_and_pi_before_the_root():
+    # The root has no parent, but the comment and the PI are its previous
+    # siblings.
+    part = (
+        '<?xml version="1.0"?><!-- made by a tool -->'
+        '<?mso-application progid="Word.Document"?><a><b>x</b></a>'
+    )
+    zf = open_zip(build_zip({"a.xml": part}))
+    assert texts(zf, "a.xml") == ["x"]
