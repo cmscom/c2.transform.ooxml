@@ -1,0 +1,203 @@
+"""Choosing the format, and what happens with broken or large files."""
+
+from c2.transform.ooxml import config
+from c2.transform.ooxml.extract import extract_text
+from tests.builders import a_p
+from tests.builders import build_docx
+from tests.builders import build_pptx
+from tests.builders import build_xlsx
+from tests.builders import build_zip
+from tests.builders import root_rels
+from tests.builders import shape
+from tests.builders import w_p
+from tests.builders import x_row
+
+import logging
+import pytest
+
+
+LOGGER = "c2.transform.ooxml"
+
+
+def test_dispatch_each_format():
+    assert extract_text(build_docx(w_p("文書"))) == "文書\n"
+    assert extract_text(build_xlsx([("表", x_row("i:セル"))])) == "表\nセル\n"
+    assert extract_text(build_pptx([(shape(a_p("スライド")), None)])) == "スライド\n"
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_dispatch_strict(strict):
+    assert extract_text(build_docx(w_p("文書"), strict=strict)) == "文書\n"
+
+
+def test_macro_enabled_same_as_plain():
+    data = build_docx(
+        w_p("本文"),
+        extra_parts={"word/vbaProject.bin": b"Attribute VB_Name = MacroSecret"},
+    )
+    text = extract_text(data)
+    assert text == "本文\n"
+    assert "MacroSecret" not in text
+
+
+def test_not_zip_returns_empty(caplog):
+    # A password-protected document is an OLE container, not a zip.
+    data = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"x" * 100
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert [r.levelname for r in caplog.records] == ["WARNING"]
+    assert "BadZipFile" in caplog.text
+
+
+def test_empty_bytes_returns_empty(caplog):
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(b"") == ""
+
+
+def test_no_main_part_returns_empty(caplog):
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(build_zip({"a.xml": "<a/>"})) == ""
+    assert caplog.records
+
+
+def test_unknown_root_returns_empty():
+    data = build_zip({
+        "_rels/.rels": root_rels("doc.xml"),
+        "doc.xml": "<other xmlns='urn:x'><t>text</t></other>",
+    })
+    assert extract_text(data) == ""
+
+
+def test_main_part_missing_from_zip():
+    assert extract_text(build_zip({"_rels/.rels": root_rels("doc.xml")})) == ""
+
+
+def test_broken_xml_returns_empty(caplog):
+    data = build_zip({
+        "_rels/.rels": root_rels("word/document.xml"),
+        "word/document.xml": (
+            "<w:document xmlns:w='http://schemas.openxmlformats.org/"
+            "wordprocessingml/2006/main'><w:body><w:p><w:r><w:t>secret-body-text"
+        ),
+    })
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert "XMLSyntaxError" in caplog.text
+    assert "secret-body-text" not in caplog.text
+
+
+def test_broken_header_returns_empty(caplog):
+    # A broken part after the body: the document is broken; no text.
+    data = build_docx(
+        w_p("本文"),
+        headers=[w_p("H")],
+        extra_parts={"word/header1.xml": "<w:hdr xmlns:w='x'><w:p>"},
+    )
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert "XMLSyntaxError" in caplog.text
+
+
+def test_doctype_returns_empty(caplog):
+    data = build_zip({
+        "_rels/.rels": root_rels("word/document.xml"),
+        "word/document.xml": (
+            '<!DOCTYPE x [<!ENTITY e "boom">]>'
+            "<w:document xmlns:w='http://schemas.openxmlformats.org/"
+            "wordprocessingml/2006/main'>&e;</w:document>"
+        ),
+    })
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert "ValueError" in caplog.text
+
+
+def test_limit_returns_partial(monkeypatch, caplog):
+    monkeypatch.setattr(config, "MAX_TEXT_CHARS", 3)
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(build_docx(w_p("あいうえお"))) == "あいう"
+    assert "text length" in caplog.text
+    assert "あいう" not in caplog.text
+
+
+class StepClock:
+    """A clock that jumps past the time limit after some calls."""
+
+    def __init__(self, calls_before_timeout: int) -> None:
+        self.calls = 0
+        self.limit = calls_before_timeout
+
+    def __call__(self) -> float:
+        self.calls += 1
+        if self.calls > self.limit:
+            return 1000.0 + config.TIME_LIMIT_SECONDS + 1
+        return 1000.0
+
+
+def test_time_limit_returns_partial(monkeypatch, caplog):
+    rows = "".join(x_row(f"i:行{i}") for i in range(2000))
+    data = build_xlsx([("S", rows)])
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        text = extract_text(data, clock=StepClock(2))
+    assert text.startswith("S\n行0\n")
+    assert "行1999" not in text
+    assert "time" in caplog.text
+
+
+def test_success_logs_nothing(caplog):
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        extract_text(build_docx(w_p("文書")))
+    assert caplog.records == []
+
+
+def _stored_docx() -> bytes:
+    """A Word document whose parts are stored (not compressed)."""
+    import io
+    import zipfile
+
+    source = zipfile.ZipFile(io.BytesIO(build_docx(w_p("本文"))))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as target:
+        for name in source.namelist():
+            target.writestr(name, source.read(name))
+    return buffer.getvalue()
+
+
+def _set_compression(data: bytes, method: int) -> bytes:
+    """Change the compression method of every entry, in the local headers
+    (offset 8) and in the central directory (offset 10)."""
+    out = bytearray(data)
+    for signature, offset in ((b"PK\x03\x04", 8), (b"PK\x01\x02", 10)):
+        start = 0
+        while (start := out.find(signature, start)) != -1:
+            out[start + offset : start + offset + 2] = method.to_bytes(2, "little")
+            start += 4
+    return bytes(out)
+
+
+def test_unsupported_compression_returns_empty(caplog):
+    # Method 9 (Deflate64) is not supported by zipfile: NotImplementedError.
+    data = _set_compression(_stored_docx(), 9)
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert "NotImplementedError" in caplog.text
+
+
+def test_corrupt_compressed_data_returns_empty(caplog):
+    # Stored data read as deflate: zlib.error.
+    data = _set_compression(_stored_docx(), 8)
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert caplog.records
+
+
+def test_encrypted_entry_returns_empty(caplog):
+    # The flag bit 0 (encrypted) in the central directory: RuntimeError.
+    data = bytearray(_stored_docx())
+    start = 0
+    while (start := data.find(b"PK\x01\x02", start)) != -1:
+        data[start + 8] |= 1
+        start += 4
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(bytes(data)) == ""
+    assert "RuntimeError" in caplog.text

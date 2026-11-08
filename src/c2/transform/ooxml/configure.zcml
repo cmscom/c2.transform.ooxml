@@ -10,6 +10,7 @@
       description="Register the Office Open XML to text transform."
       provides="Products.GenericSetup.interfaces.EXTENSION"
       directory="profiles/default"
+      post_handler=".setuphandlers.post_install"
       />
 
   <genericsetup:registerProfile
@@ -18,6 +19,13 @@
       description="Remove the Office Open XML to text transform."
       provides="Products.GenericSetup.interfaces.EXTENSION"
       directory="profiles/uninstall"
+      post_handler=".setuphandlers.uninstall"
+      />
+
+  <!-- Hide the uninstall profile -->
+  <utility
+      factory=".setuphandlers.HiddenProfiles"
+      name="c2.transform.ooxml"
       />
 
 </configure>
