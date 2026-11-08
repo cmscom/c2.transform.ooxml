@@ -1,0 +1,127 @@
+name: Release
+
+# Publishes to PyPI with Trusted Publishing when zest.releaser's fullrelease
+# pushes a version tag such as 1.0.0b1 (no "v" prefix).
+#
+# Every action is pinned to a full commit SHA of a release that has been out
+# for at least two weeks (cooldown). The comment after each SHA is the tag.
+
+on:
+  push:
+    tags:
+      - '[0-9]*'
+
+permissions:
+  contents: read
+
+# Never cancel a release half way. The group must differ from the one in
+# plone-package.yml, which runs inside this workflow (group names ignore case).
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    # actionlint 1.7.12 does not know the self-repository syntax ($/...) yet.
+    # A reusable workflow given with ./ is read from the commit of this run,
+    # not from the files of a runner.
+    uses: ./.github/workflows/plone-package.yml # zizmor: ignore[self-repository]
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: false
+      - name: Check that the tag is the version in pyproject.toml
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [ "$version" != "$TAG" ]; then
+            echo "::error::The tag $TAG is not the version $version in pyproject.toml"
+            exit 1
+          fi
+      - name: Build the sdist and the wheel
+        run: uv build --out-dir dist
+      - name: Check the distributions
+        run: uvx twine@7.0.0 check --strict dist/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/c2.transform.ooxml
+    permissions:
+      # Trusted Publishing
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      # gh release create
+      contents: write
+      # Sigstore
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - name: Sign the distributions
+        uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9 # v3.5.0
+        with:
+          inputs: >-
+            ./dist/*.tar.gz
+            ./dist/*.whl
+      - name: Take the notes of this version from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          # The section starts at "## <version> (<date>)" and ends before the
+          # next "## " heading.
+          awk -v heading="## $TAG (" '
+            index($0, heading) == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::No section for $TAG in CHANGELOG.md"
+            exit 1
+          fi
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A version with a, b or rc (PEP 440) is a pre-release.
+          prerelease=()
+          if [[ "$TAG" =~ (a|b|rc)[0-9]+$ ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            "${prerelease[@]}"
