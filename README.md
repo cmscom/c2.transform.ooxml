@@ -93,12 +93,14 @@ apply to one document:
   a DOCTYPE is refused.
 - The log never contains the content of a document.
 
-Measured on 2026-11-08 (Python 3.14, Plone 6.2) with one 52 MB part of
-about 35 million characters: with the default limits, the reading stopped
-at the length of the text after about 3 seconds, with a peak of 29 MB of
-Python memory; with the limits raised, all of its text was read in about
-11 seconds, with a peak of 102 MB. The XML is not kept in memory: the
-memory grows with the text, not with the size of the part.
+Measured on 2026-11-08 (Python 3.14, Plone 6.2) with one ordinary 52 MB
+part of about 35 million characters: with the default limits, the reading
+stopped at the length of the text after about 3 seconds, with a peak of
+29 MB of Python memory; with the limits raised, all of its text was read
+in about 11 seconds, with a peak of 102 MB. For that document the memory
+grew with the text, not with the size of the part. These numbers describe
+that document only; for any input, it is the limits above that bound the
+reading.
 
 ## Installation
 

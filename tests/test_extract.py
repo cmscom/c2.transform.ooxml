@@ -173,16 +173,22 @@ class StepClock:
         return 1000.0
 
 
-def test_time_limit_returns_partial(monkeypatch, caplog):
+def test_time_limit_returns_partial(caplog):
     rows = "".join(x_row(f"i:行{i}") for i in range(2000))
     data = build_xlsx([("S", rows)])
+    full = extract_text(data)
+    counting = StepClock(10**9)
+    extract_text(data, clock=counting)
+    # Some point in time stops the reading inside the sheet: the text read
+    # so far comes back, with a warning.
+    partial = []
     with caplog.at_level(logging.WARNING, logger=LOGGER):
-        # The clock is read when the budget starts and for each part
-        # (_rels/.rels, the workbook twice, its .rels, the sheet): the
-        # next read, inside the sheet, is past the limit.
-        text = extract_text(data, clock=StepClock(6))
-    assert text.startswith("S\n行0\n")
-    assert "行1999" not in text
+        for calls in range(1, counting.calls):
+            text = extract_text(data, clock=StepClock(calls))
+            if len("S\n行0\n") <= len(text) < len(full):
+                partial.append(text)
+    assert partial
+    assert all(full.startswith(text) for text in partial)
     assert "time" in caplog.text
 
 

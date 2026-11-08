@@ -375,3 +375,36 @@ def test_iter_xml_reads_stored_and_deflated(method):
     with zipfile.ZipFile(buffer, "w", method) as target:
         target.writestr("a.xml", "<a>x</a>")
     assert texts(open_zip(buffer.getvalue()), "a.xml") == ["x"]
+
+
+@pytest.mark.parametrize("node", ["<!-- c -->", "<?p x?>"])
+def test_comments_and_pis_are_not_kept(node):
+    # They have no "end" event of their own, so they would stay as
+    # children of the root until it ends.
+    zf = open_zip(build_zip({"a.xml": "<a>" + node * 10_000 + "</a>"}))
+    for event, el in package.iter_xml(zf, "a.xml", Budget()):
+        if event == "end":
+            assert len(el) == 0
+
+
+class CountingClock:
+    """A clock that passes the time limit after ``calls`` reads."""
+
+    def __init__(self, calls: int) -> None:
+        self.calls = 0
+        self.limit = calls
+
+    def __call__(self) -> float:
+        self.calls += 1
+        if self.calls > self.limit:
+            return 1000.0 + config.TIME_LIMIT_SECONDS + 1
+        return 1000.0
+
+
+def test_time_is_checked_for_each_read():
+    # A part with few events (one long text) is read in many chunks.
+    zf = open_zip(build_zip({"a.xml": "<a>" + "x" * 500_000 + "</a>"}))
+    # The budget starts (1) and takes the part (2); the first read is past.
+    budget = Budget(clock=CountingClock(2))
+    with pytest.raises(LimitReached, match="time"):
+        list(package.iter_xml(zf, "a.xml", budget))

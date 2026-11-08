@@ -175,6 +175,8 @@ class _CountingReader:
     def read(self, n: int = CHUNK_SIZE) -> bytes:
         if n is None or n < 0 or n > CHUNK_SIZE:
             n = CHUNK_SIZE
+        # Also here: a part with few parse events is still read in chunks.
+        self._budget.check_time()
         data = self._stream.read(n)
         self._size += len(data)
         if self._size > config.MAX_PART_BYTES:
@@ -209,6 +211,10 @@ def iter_xml(
             no_network=True,
             huge_tree=False,
             load_dtd=False,
+            # Comments and PIs have no events here, so they would stay in
+            # the tree until their parent ends.
+            remove_comments=True,
+            remove_pis=True,
         )
         checked = False
         for count, (event, element) in enumerate(events, 1):
