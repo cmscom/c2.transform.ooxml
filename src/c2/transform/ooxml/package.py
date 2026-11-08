@@ -58,6 +58,19 @@ class LimitReached(Exception):
     """A limit of the size, the number of parts, the text or the time."""
 
 
+class UnsupportedCompression(ValueError):
+    """A part compressed with another method than deflate (or stored).
+
+    zipfile decompresses bzip2, LZMA and Zstandard data without a limit on
+    the size of the output, before the bytes can be counted. Office
+    writes deflate, so other methods are refused as a broken part.
+    """
+
+
+# The compression methods of the parts that are read.
+READABLE_COMPRESSION = frozenset({zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED})
+
+
 class Budget:
     """What one document may still use. The limits are read from ``config``."""
 
@@ -175,13 +188,17 @@ def iter_xml(
 ) -> Iterator[tuple[str, etree._Element]]:
     """The ("start" or "end", element) events of the part ``name``.
 
-    Nothing comes from a part that is not in the zip. An element is cleared
-    when the caller has had its "end" event: read its text then.
+    Nothing comes from a part that is not in the zip. A part that is not
+    stored or deflated raises ``UnsupportedCompression`` before it is
+    opened. An element is cleared when the caller has had its "end" event:
+    read its text then.
     """
     try:
-        zf.getinfo(name)
+        info = zf.getinfo(name)
     except KeyError:
         return
+    if info.compress_type not in READABLE_COMPRESSION:
+        raise UnsupportedCompression(f"compression method {info.compress_type}")
     budget.take_part()
     with zf.open(name) as stream:
         reader = _CountingReader(stream, budget)

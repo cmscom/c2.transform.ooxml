@@ -357,3 +357,21 @@ def test_time_is_checked_for_each_part():
     clock.now += config.TIME_LIMIT_SECONDS + 1
     with pytest.raises(LimitReached, match="time"):
         texts(zf, "b.xml", budget)
+
+
+@pytest.mark.parametrize("method", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA])
+def test_iter_xml_refuses_other_compression(method):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", method) as target:
+        target.writestr("a.xml", "<a>x</a>")
+    zf = open_zip(buffer.getvalue())
+    with pytest.raises(package.UnsupportedCompression):
+        list(package.iter_xml(zf, "a.xml", Budget()))
+
+
+@pytest.mark.parametrize("method", [zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED])
+def test_iter_xml_reads_stored_and_deflated(method):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", method) as target:
+        target.writestr("a.xml", "<a>x</a>")
+    assert texts(open_zip(buffer.getvalue()), "a.xml") == ["x"]

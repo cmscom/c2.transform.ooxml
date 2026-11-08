@@ -217,12 +217,53 @@ def _set_compression(data: bytes, method: int) -> bytes:
     return bytes(out)
 
 
-def test_unsupported_compression_returns_empty(caplog):
-    # Method 9 (Deflate64) is not supported by zipfile: NotImplementedError.
-    data = _set_compression(_stored_docx(), 9)
+@pytest.mark.parametrize(
+    "method",
+    [
+        9,  # Deflate64: zipfile cannot read it
+        12,  # bzip2
+        14,  # LZMA
+        93,  # Zstandard (Python 3.14)
+    ],
+)
+def test_other_compression_is_not_opened(monkeypatch, caplog, method):
+    # Only stored and deflated entries are read: zipfile decompresses the
+    # others without a limit on the size of the output.
+    import zipfile
+
+    data = _set_compression(_stored_docx(), method)
+    opened = []
+    open_entry = zipfile.ZipFile.open
+
+    def recording_open(self, name, *args: object, **kwargs: object) -> object:
+        opened.append(name)
+        return open_entry(self, name, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", recording_open)
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         assert extract_text(data) == ""
-    assert "NotImplementedError" in caplog.text
+    assert opened == []
+    assert "UnsupportedCompression" in caplog.text
+
+
+def test_other_compression_after_the_main_part(caplog):
+    # A header in bzip2: the body stays, as for a broken part.
+    import io
+    import zipfile
+
+    source = zipfile.ZipFile(io.BytesIO(build_docx(w_p("本文"), headers=[w_p("H")])))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as target:
+        for name in source.namelist():
+            method = (
+                zipfile.ZIP_BZIP2
+                if name == "word/header1.xml"
+                else zipfile.ZIP_DEFLATED
+            )
+            target.writestr(name, source.read(name), compress_type=method)
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(buffer.getvalue()) == "本文\n"
+    assert "UnsupportedCompression" in caplog.text
 
 
 def test_corrupt_compressed_data_returns_empty(caplog):
@@ -259,8 +300,8 @@ def test_comment_before_the_root_of_a_part():
 
 
 def test_corrupt_lzma_data_returns_empty(caplog):
-    # An entry compressed with LZMA (method 14): valid LZMA properties,
-    # then corrupt data. zipfile raises lzma.LZMAError.
+    # An entry compressed with LZMA (method 14), with valid LZMA properties
+    # and then corrupt data, is refused before it is opened.
     import io
     import zipfile
 
@@ -271,7 +312,7 @@ def test_corrupt_lzma_data_returns_empty(caplog):
     data = _set_compression(buffer.getvalue(), 14)
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         assert extract_text(data) == ""
-    assert "LZMAError" in caplog.text
+    assert "UnsupportedCompression" in caplog.text
 
 
 def test_broken_xml_message_is_not_logged(caplog):

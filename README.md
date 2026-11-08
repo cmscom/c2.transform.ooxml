@@ -78,6 +78,9 @@ apply to one document:
   minute.
 - The sizes are counted while the parts are read; the sizes that the zip
   declares are not trusted.
+- Only parts that are stored or compressed with deflate (as Office writes
+  them) are read. A part compressed with another method (such as bzip2,
+  LZMA or Zstandard) is treated as a broken part.
 - When a limit is reached, the text read so far is returned and a warning
   is logged.
 - The shared strings of a workbook are kept in memory while its sheets
