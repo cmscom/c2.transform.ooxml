@@ -156,3 +156,27 @@ def test_shared_strings_and_text_share_one_limit(monkeypatch):
     with pytest.raises(LimitReached):
         extract_excel(zf, "xl/workbook.xml", sink, budget)
     assert sink.text() == "S\n"
+
+
+def test_a_row_is_not_joined_before_the_limit(monkeypatch):
+    # 100 cells that use one shared string of 100 characters: the row must
+    # not be built whole (10,100 characters) before the limit of 200.
+    monkeypatch.setattr(config, "MAX_TEXT_CHARS", 200)
+    data = build_xlsx(
+        [("S", x_row(*["s:0"] * 100))], shared=["<s:t>" + "x" * 100 + "</s:t>"]
+    )
+    zf = zipfile.ZipFile(io.BytesIO(data))
+    budget = Budget()
+    sink = TextSink(budget)
+    sizes: list[int] = []
+    write = sink.write
+
+    def recording_write(text: str) -> None:
+        sizes.append(len(text))
+        write(text)
+
+    monkeypatch.setattr(sink, "write", recording_write)
+    with pytest.raises(LimitReached):
+        extract_excel(zf, "xl/workbook.xml", sink, budget)
+    assert max(sizes) <= 200
+    assert len(sink.text()) == 100

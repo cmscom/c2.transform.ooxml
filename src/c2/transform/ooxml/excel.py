@@ -76,6 +76,24 @@ class _Cell:
         return self.value
 
 
+class _RowWriter:
+    """Write the cells of a row one by one, separated by tabs."""
+
+    def __init__(self, sink: TextSink) -> None:
+        self.sink = sink
+        self.first = True
+
+    def cell(self, text: str) -> None:
+        if not self.first:
+            self.sink.write("\t")
+        self.sink.write(text)
+        self.first = False
+
+    def end(self) -> None:
+        self.sink.write("\n")
+        self.first = True
+
+
 def _write_sheet(
     zf: zipfile.ZipFile,
     name: str,
@@ -88,8 +106,12 @@ def _write_sheet(
     The value of a cell is the value saved with it (``s:v``, the result of
     a formula; dates stay numbers) or its inline string; formulas are not
     written, and a cell without a value is left out.
+
+    Each cell is written as it comes, not joined into a row first: a row
+    of many cells that use one long shared string stops at the limit of
+    the text before it is built.
     """
-    row: list[str] = []
+    row = _RowWriter(sink)
     cell: _Cell | None = None
     phonetic = 0
     for event, element in iter_xml(zf, name, budget):
@@ -105,11 +127,10 @@ def _write_sheet(
         elif cell is not None and is_el(element, "s", "c"):
             text = cell.text(strings)
             if text is not None:
-                row.append(text)
+                row.cell(text)
             cell = None
         elif is_el(element, "s", "row"):
-            sink.write("\t".join(row) + "\n")
-            row = []
+            row.end()
 
 
 def extract_excel(
