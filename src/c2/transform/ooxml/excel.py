@@ -62,6 +62,24 @@ def _shared(strings: list[str], value: str) -> str | None:
     return None
 
 
+class _Cell:
+    """The value of a cell (``s:c``) as it is read."""
+
+    def __init__(self, cell_type: str | None) -> None:
+        self.cell_type = cell_type
+        # The text of s:v: the saved value, or the index of a shared string.
+        self.value: str | None = None
+        self.inline: list[str] = []
+
+    def text(self, strings: list[str]) -> str | None:
+        """The text of the cell, or None for a cell without a value."""
+        if self.cell_type == "inlineStr":
+            return "".join(self.inline)
+        if self.cell_type == "s":
+            return _shared(strings, self.value or "")
+        return self.value
+
+
 def _write_sheet(
     zf: zipfile.ZipFile,
     name: str,
@@ -76,37 +94,26 @@ def _write_sheet(
     written, and a cell without a value is left out.
     """
     row: list[str] = []
-    cell_type: str | None = None
-    value: str | None = None
-    inline: list[str] = []
+    cell: _Cell | None = None
     phonetic = 0
     for event, element in iter_xml(zf, name, budget):
         if is_el(element, "s", "rPh"):
             phonetic += 1 if event == "start" else -1
-            continue
-        if event == "start":
-            if is_el(element, "s", "row"):
-                row = []
-            elif is_el(element, "s", "c"):
-                cell_type = element.get("t")
-                value = None
-                inline = []
-            continue
-        if is_el(element, "s", "v"):
-            value = element.text or ""
-        elif is_el(element, "s", "t") and not phonetic:
-            inline.append(element.text or "")
-        elif is_el(element, "s", "c"):
-            if cell_type == "inlineStr":
-                row.append("".join(inline))
-            elif cell_type == "s":
-                text = _shared(strings, value or "")
-                if text is not None:
-                    row.append(text)
-            elif value is not None:
-                row.append(value)
+        elif event == "start":
+            if is_el(element, "s", "c"):
+                cell = _Cell(element.get("t"))
+        elif cell is not None and is_el(element, "s", "v"):
+            cell.value = element.text or ""
+        elif cell is not None and is_el(element, "s", "t") and not phonetic:
+            cell.inline.append(element.text or "")
+        elif cell is not None and is_el(element, "s", "c"):
+            text = cell.text(strings)
+            if text is not None:
+                row.append(text)
+            cell = None
         elif is_el(element, "s", "row"):
             sink.write("\t".join(row) + "\n")
+            row = []
 
 
 def extract_excel(
