@@ -27,7 +27,7 @@ def test_body_paragraphs():
 
 
 def test_runs_join_without_space():
-    assert word_text(build_docx(w_p("熊", "本"))) == "熊本\n"
+    assert word_text(build_docx(w_p("漢", "字"))) == "漢字\n"
 
 
 def test_tab_and_breaks():

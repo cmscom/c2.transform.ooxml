@@ -61,20 +61,20 @@ def test_date_stays_number():
 
 
 def test_phonetic_excluded():
-    si = "<s:t>熊本</s:t><s:rPh sb='0' eb='2'><s:t>クマモト</s:t></s:rPh>"
+    si = "<s:t>漢字</s:t><s:rPh sb='0' eb='2'><s:t>カンジ</s:t></s:rPh>"
     text = excel_text(build_xlsx([("S", x_row("s:0"))], shared=[si]))
-    assert "熊本" in text
-    assert "クマモト" not in text
+    assert "漢字" in text
+    assert "カンジ" not in text
 
 
 def test_phonetic_excluded_inline():
     cell = (
-        '<s:row><s:c t="inlineStr"><s:is><s:t>熊本</s:t>'
-        "<s:rPh sb='0' eb='2'><s:t>クマモト</s:t></s:rPh></s:is></s:c></s:row>"
+        '<s:row><s:c t="inlineStr"><s:is><s:t>漢字</s:t>'
+        "<s:rPh sb='0' eb='2'><s:t>カンジ</s:t></s:rPh></s:is></s:c></s:row>"
     )
     text = excel_text(build_xlsx([("S", cell)]))
-    assert "熊本" in text
-    assert "クマモト" not in text
+    assert "漢字" in text
+    assert "カンジ" not in text
 
 
 @pytest.mark.parametrize("index", ["5", "-1", "x", ""])
