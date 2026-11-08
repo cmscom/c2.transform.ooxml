@@ -27,11 +27,12 @@ def _write_part(zf: zipfile.ZipFile, name: str, sink: TextSink, budget: Budget) 
     - Inserted text (``w:ins``) is text of the document; deleted text
       (``w:delText``) and field instructions (``w:instrText``) are not.
     - ``mc:Fallback`` repeats the content of ``mc:Choice`` (for example a
-      text box), so it is skipped.
+      text box), so it is skipped. So is ``w:moveFrom``, the old place of
+      text moved with tracked changes (it is written at ``w:moveTo``).
     """
     skipping = 0
     for event, element in iter_xml(zf, name, budget):
-        if is_el(element, "mc", "Fallback"):
+        if is_el(element, "mc", "Fallback") or is_el(element, "w", "moveFrom"):
             skipping += 1 if event == "start" else -1
             continue
         if event != "end" or skipping:

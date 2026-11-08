@@ -141,3 +141,15 @@ def test_tab_stops_are_not_text():
         "</w:pPr><w:r><w:t>a</w:t></w:r></w:p>"
     )
     assert word_text(build_docx(body)) == "a\n"
+
+
+def test_moved_text_once():
+    # A tracked move: the old place (w:moveFrom) and the new one (w:moveTo).
+    body = (
+        "<w:p><w:moveFrom w:id='1'><w:r><w:t>移す段落</w:t></w:r></w:moveFrom></w:p>"
+        "<w:p><w:r><w:t>間</w:t></w:r></w:p>"
+        "<w:p><w:moveTo w:id='2'><w:r><w:t>移す段落</w:t></w:r></w:moveTo></w:p>"
+    )
+    text = word_text(build_docx(body))
+    assert text.count("移す段落") == 1
+    assert text.index("間") < text.index("移す段落")
