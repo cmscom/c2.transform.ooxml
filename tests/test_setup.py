@@ -149,3 +149,35 @@ class TestUninstall:
     def test_install_again(self, installer, transforms):
         installer.install_product(PACKAGE_NAME)
         assert TRANSFORM_NAME in transforms.objectIds()
+
+
+def test_install_after_a_recovered_uninstall_is_saved(functional):
+    """The recovery keeps the persistent lists of portal_transforms, so a
+    later install is saved: read in a new connection, every MIME type
+    still maps to the transform."""
+    from c2.transform.ooxml import config
+    from persistent.list import PersistentList
+
+    import transaction
+
+    portal = functional["portal"]
+    transforms = portal.portal_transforms
+    setup_tool = portal.portal_setup
+    del transforms._mtmap[DOCX]["text/plain"]
+    transaction.commit()
+    setup_tool.runAllImportStepsFromProfile(UNINSTALL_PROFILE)
+    transaction.commit()
+    setup_tool.runAllImportStepsFromProfile(DEFAULT_PROFILE)
+    transaction.commit()
+
+    connection = portal._p_jar.db().open()
+    try:
+        mtmap = connection.root()["Application"][
+            portal.getId()
+        ].portal_transforms._mtmap
+        for m in config.ooxml_mimetypes:
+            chain = mtmap[m["mimetypes"][0]]["text/plain"]
+            assert isinstance(chain, PersistentList), m["mimetypes"][0]
+            assert TRANSFORM_NAME in [t.name() for t in chain], m["mimetypes"][0]
+    finally:
+        connection.close()

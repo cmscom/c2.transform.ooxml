@@ -52,14 +52,15 @@ def post_install(context: SetupTool) -> None:
 def _unmap_everywhere(transforms: TransformTool, name: str) -> None:
     """Remove the transform ``name`` from every mapping of portal_transforms.
 
-    Other transforms keep their places in the chains.
+    The chains are changed in place: they are persistent lists, which
+    portal_transforms changes in place later (a plain list there would not
+    be saved). Other transforms keep their places.
     """
     for outputs in transforms._mtmap.values():
-        for output, chain in list(outputs.items()):
-            kept = [t for t in chain if t.name() != name]
-            if len(kept) != len(chain):
-                # Set again, so that the persistent mapping is saved.
-                outputs[output] = kept
+        for chain in outputs.values():
+            for index in reversed(range(len(chain))):
+                if chain[index].name() == name:
+                    del chain[index]
 
 
 def uninstall(context: SetupTool) -> None:
