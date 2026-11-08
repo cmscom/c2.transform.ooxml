@@ -346,3 +346,14 @@ def test_main_part_after_other_relationships():
     ])
     zf = open_zip(build_zip({"_rels/.rels": package_rels}))
     assert package.main_part(zf, Budget()) == "word/document.xml"
+
+
+def test_time_is_checked_for_each_part():
+    # Many small parts (under 1000 events each) still meet the time limit.
+    clock = Clock()
+    budget = Budget(clock=clock)
+    zf = open_zip(build_zip({"a.xml": "<a/>", "b.xml": "<b/>"}))
+    texts(zf, "a.xml", budget)
+    clock.now += config.TIME_LIMIT_SECONDS + 1
+    with pytest.raises(LimitReached, match="time"):
+        texts(zf, "b.xml", budget)

@@ -77,6 +77,8 @@ class Budget:
             raise LimitReached(f"total size ({config.MAX_TOTAL_BYTES} bytes)")
 
     def take_part(self) -> None:
+        # Also here, so that many small parts cannot pass the time limit.
+        self.check_time()
         self._parts += 1
         if self._parts > config.MAX_PARTS:
             raise LimitReached(f"number of parts ({config.MAX_PARTS})")

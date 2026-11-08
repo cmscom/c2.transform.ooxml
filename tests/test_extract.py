@@ -177,7 +177,10 @@ def test_time_limit_returns_partial(monkeypatch, caplog):
     rows = "".join(x_row(f"i:行{i}") for i in range(2000))
     data = build_xlsx([("S", rows)])
     with caplog.at_level(logging.WARNING, logger=LOGGER):
-        text = extract_text(data, clock=StepClock(2))
+        # The clock is read when the budget starts and for each part
+        # (_rels/.rels, the workbook twice, its .rels, the sheet): the
+        # next read, inside the sheet, is past the limit.
+        text = extract_text(data, clock=StepClock(6))
     assert text.startswith("S\n行0\n")
     assert "行1999" not in text
     assert "time" in caplog.text
