@@ -64,3 +64,10 @@ def test_license_names_this_package():
     text = read("LICENSE.txt")
     assert text.startswith("  c2.transform.ooxml is copyright")
     assert "msoffice" not in text
+
+
+@pytest.mark.parametrize("readme", README)
+def test_readmes_name_the_limit_of_libxml2(readme):
+    text = read(readme)
+    assert "libxml2" in text
+    assert "10 MB" in text

@@ -96,6 +96,9 @@ apply to one document:
   read so far, with a warning. Saving the file in Plone still works.
 - The XML is read without entities, DTDs or network access; a part with
   a DOCTYPE is refused.
+- A single run of text over about 10 MB is refused by libxml2 as broken
+  XML: in the main part, the document gives no text; in a later part, the
+  text read so far is kept.
 - The log never contains the content of a document.
 
 Measured on 2026-11-08 (Python 3.14, Plone 6.2) with one ordinary 52 MB
