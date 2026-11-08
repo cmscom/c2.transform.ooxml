@@ -230,3 +230,20 @@ def test_corrupt_lzma_data_returns_empty(caplog):
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         assert extract_text(data) == ""
     assert "LZMAError" in caplog.text
+
+
+def test_broken_xml_message_is_not_logged(caplog):
+    # libxml2's message for an undefined entity quotes its name, so this
+    # fails if the message (not only the type) is logged.
+    data = build_zip({
+        "_rels/.rels": root_rels("word/document.xml"),
+        "word/document.xml": (
+            "<w:document xmlns:w='http://schemas.openxmlformats.org/"
+            "wordprocessingml/2006/main'><w:body><w:p><w:r>"
+            "<w:t>&secretword;</w:t></w:r></w:p></w:body></w:document>"
+        ),
+    })
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert "XMLSyntaxError" in caplog.text
+    assert "secretword" not in caplog.text
