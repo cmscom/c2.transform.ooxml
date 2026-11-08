@@ -1,10 +1,8 @@
 """The text of Excel workbooks (xlsx, xltx, xlsm, xltm)."""
 
-from c2.transform.ooxml import config
 from c2.transform.ooxml.package import Budget
 from c2.transform.ooxml.package import is_el
 from c2.transform.ooxml.package import iter_xml
-from c2.transform.ooxml.package import LimitReached
 from c2.transform.ooxml.package import r_id
 from c2.transform.ooxml.package import relationships
 from c2.transform.ooxml.package import TextSink
@@ -23,15 +21,17 @@ def _sheets(
     ]
 
 
-def _shared_strings(zf: zipfile.ZipFile, name: str, budget: Budget) -> list[str]:
+def _shared_strings(
+    zf: zipfile.ZipFile, name: str, sink: TextSink, budget: Budget
+) -> list[str]:
     """The shared strings. The phonetic reading (``s:rPh``) is left out.
 
-    They count toward the limit of the text, as they are kept in memory.
+    They are kept in memory, so they count toward the limit of the text,
+    together with the text written to ``sink``.
     """
     strings: list[str] = []
     current: list[str] = []
     phonetic = 0
-    total = 0
     for event, element in iter_xml(zf, name, budget):
         if is_el(element, "s", "rPh"):
             phonetic += 1 if event == "start" else -1
@@ -43,11 +43,7 @@ def _shared_strings(zf: zipfile.ZipFile, name: str, budget: Budget) -> list[str]
         elif is_el(element, "s", "si"):
             text = "".join(current)
             current = []
-            total += len(text)
-            if total > config.MAX_TEXT_CHARS:
-                raise LimitReached(
-                    f"text length of the shared strings ({config.MAX_TEXT_CHARS})"
-                )
+            sink.charge(len(text))
             strings.append(text)
     return strings
 
@@ -127,7 +123,7 @@ def extract_excel(
     strings: list[str] = []
     for rel in rels:
         if rel.kind == "sharedStrings":
-            strings = _shared_strings(zf, rel.target, budget)
+            strings = _shared_strings(zf, rel.target, sink, budget)
             break
     for sheet_name, rel_id in sheets:
         sink.write(sheet_name + "\n")

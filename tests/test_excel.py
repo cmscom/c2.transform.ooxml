@@ -141,3 +141,18 @@ def test_strict_excel(strict):
         strict=strict,
     )
     assert excel_text(data) == "名簿\n氏名\t直接\t42\n"
+
+
+def test_shared_strings_and_text_share_one_limit(monkeypatch):
+    # 8 characters of shared strings and 7 of text: each is within the
+    # limit of 10, together they are not.
+    monkeypatch.setattr(config, "MAX_TEXT_CHARS", 10)
+    data = build_xlsx(
+        [("S", x_row("s:0"))], shared=["<s:t>abcd</s:t>", "<s:t>efgh</s:t>"]
+    )
+    zf = zipfile.ZipFile(io.BytesIO(data))
+    budget = Budget()
+    sink = TextSink(budget)
+    with pytest.raises(LimitReached):
+        extract_excel(zf, "xl/workbook.xml", sink, budget)
+    assert sink.text() == "S\n"

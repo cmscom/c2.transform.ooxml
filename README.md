@@ -74,6 +74,8 @@ apply to one document:
   declares are not trusted.
 - When a limit is reached, the text read so far is returned and a warning
   is logged.
+- The shared strings of a workbook are kept in memory while its sheets
+  are read; they count toward the length of the text.
 - A file that is not a zip (a password-protected document is not one), a
   broken zip or a broken main part gives no text, with a warning. A broken
   part after the main part (a header, a sheet, a slide) keeps the text

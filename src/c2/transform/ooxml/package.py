@@ -103,6 +103,13 @@ class TextSink:
         self._chunks.append(text)
         self._length += len(text)
 
+    def charge(self, n: int) -> None:
+        """Count ``n`` characters that are kept elsewhere (the shared strings
+        of a workbook), so that they and the text share one limit."""
+        if self._length + n > config.MAX_TEXT_CHARS:
+            raise LimitReached(f"text length ({config.MAX_TEXT_CHARS} characters)")
+        self._length += n
+
     def text(self) -> str:
         return "".join(self._chunks)
 
