@@ -120,7 +120,8 @@ def test_comments_not_read():
 
 def test_empty_rows_and_sheets():
     data = build_xlsx([("空", ""), ("S", "<s:row/>" + x_row("1"))])
-    assert excel_text(data) == "空\nS\n\n1\n"
+    # An empty row gives no empty line.
+    assert excel_text(data) == "空\nS\n1\n"
 
 
 def test_shared_strings_count_toward_the_text_limit(monkeypatch):

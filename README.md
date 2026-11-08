@@ -59,6 +59,8 @@ in images are not extracted.
   are saved.
 - PowerPoint: the slides in the order of the presentation, hidden slides
   too, each followed by its notes. Every paragraph ends a line.
+- A line break is never written after another one: empty paragraphs and
+  empty rows give no empty lines.
 
 ## Limits and errors
 

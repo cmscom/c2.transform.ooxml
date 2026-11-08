@@ -16,6 +16,7 @@ from urllib.parse import unquote
 
 import io
 import posixpath
+import re
 import time
 import zipfile
 
@@ -98,8 +99,16 @@ class Budget:
             raise LimitReached(f"number of parts ({config.MAX_PARTS})")
 
 
+_LINE_BREAKS = re.compile(r"\n{2,}")
+
+
 class TextSink:
-    """The text of a document, up to ``config.MAX_TEXT_CHARS`` characters."""
+    """The text of a document, up to ``config.MAX_TEXT_CHARS`` characters.
+
+    A line break is never written after another one: empty paragraphs and
+    rows give no empty lines (a document of millions of them would give
+    millions of line breaks to the index).
+    """
 
     def __init__(self, budget: Budget) -> None:
         self.budget = budget
@@ -108,8 +117,14 @@ class TextSink:
         self.main_read = False
         self._chunks: list[str] = []
         self._length = 0
+        self._ends_with_line_break = False
 
     def write(self, text: str) -> None:
+        if self._ends_with_line_break:
+            text = text.lstrip("\n")
+        text = _LINE_BREAKS.sub("\n", text)
+        if not text:
+            return
         room = config.MAX_TEXT_CHARS - self._length
         if len(text) > room:
             if room > 0:
@@ -118,6 +133,7 @@ class TextSink:
             raise LimitReached(f"text length ({config.MAX_TEXT_CHARS} characters)")
         self._chunks.append(text)
         self._length += len(text)
+        self._ends_with_line_break = text.endswith("\n")
 
     def charge(self, n: int) -> None:
         """Count ``n`` characters that are kept elsewhere (the shared strings

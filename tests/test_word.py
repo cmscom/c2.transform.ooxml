@@ -153,3 +153,13 @@ def test_moved_text_once():
     text = word_text(build_docx(body))
     assert text.count("移す段落") == 1
     assert text.index("間") < text.index("移す段落")
+
+
+def test_empty_paragraphs_give_no_empty_lines():
+    body = w_p("前") + "<w:p/>" * 1000 + w_p("後")
+    assert word_text(build_docx(body)) == "前\n後\n"
+
+
+def test_line_break_at_the_end_of_a_paragraph():
+    body = "<w:p><w:r><w:t>a</w:t><w:br/></w:r></w:p>" + w_p("b")
+    assert word_text(build_docx(body)) == "a\nb\n"

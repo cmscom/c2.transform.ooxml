@@ -513,3 +513,12 @@ def test_default_limit_stops_a_large_central_directory(caplog, zipfile_reads):
         assert extract_text(data) == ""
     assert zipfile_reads == []
     assert "central directory" in caplog.text
+
+
+def test_many_empty_paragraphs():
+    # Smaller forms of the measured documents: a body of empty paragraphs,
+    # and headers of them after a short body.
+    empty = "<w:p><w:pPr><w:jc w:val='left'/></w:pPr></w:p>" * 1000
+    assert "\n\n" not in extract_text(build_docx(empty))
+    data = build_docx(w_p("本文"), headers=[empty] * 5)
+    assert extract_text(data) == "本文\n"

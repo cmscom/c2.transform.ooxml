@@ -408,3 +408,22 @@ def test_time_is_checked_for_each_read():
     budget = Budget(clock=CountingClock(2))
     with pytest.raises(LimitReached, match="time"):
         list(package.iter_xml(zf, "a.xml", budget))
+
+
+def test_text_sink_does_not_repeat_line_breaks():
+    sink = TextSink(Budget())
+    sink.write("a\n")
+    sink.write("\n")
+    sink.write("\n\nb\n\n\nc")
+    sink.write("\t")
+    sink.write("\t")
+    assert sink.text() == "a\nb\nc\t\t"
+
+
+def test_text_sink_counts_the_written_text_only(monkeypatch):
+    monkeypatch.setattr(config, "MAX_TEXT_CHARS", 4)
+    sink = TextSink(Budget())
+    sink.write("a\n")
+    sink.write("\n\n\n\n\n\n")
+    sink.write("b\n")
+    assert sink.text() == "a\nb\n"
