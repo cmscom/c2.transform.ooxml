@@ -158,18 +158,22 @@ def build_xlsx(
     *,
     shared: Sequence[str] = (),
     hidden: Sequence[str] = (),
+    file_order: Sequence[int] | None = None,
     comments: str | None = None,
     strict: bool = False,
 ) -> bytes:
     """A workbook. ``sheets`` are (name, rows); ``shared`` are the inner XML
-    of each ``s:si`` (with the prefix ``s``)."""
+    of each ``s:si`` (with the prefix ``s``); ``file_order`` numbers the
+    sheet parts differently (for example (2, 1) names the first sheet
+    sheet2.xml)."""
+    numbers = list(file_order or range(1, len(sheets) + 1))
     parts: dict[str, str | bytes] = {
         "[Content_Types].xml": content_types(),
         "_rels/.rels": root_rels("xl/workbook.xml", strict),
     }
     sheet_list = []
     items = []
-    for i, (name, rows) in enumerate(sheets, 1):
+    for (name, rows), i in zip(sheets, numbers, strict=True):
         state = ' state="hidden"' if name in hidden else ""
         sheet_list.append(
             f'<s:sheet name="{escape(name)}" sheetId="{i}" r:id="rIdS{i}"{state}/>'

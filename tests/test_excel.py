@@ -37,6 +37,14 @@ def test_sheets_in_workbook_order():
     assert excel_text(data) == "一枚目\n1\n二枚目\n2\n"
 
 
+def test_sheets_are_found_by_their_relationship():
+    # Sheets moved in Excel: the first sheet is the part sheet2.xml.
+    data = build_xlsx(
+        [("一枚目", x_row("1")), ("二枚目", x_row("2"))], file_order=(2, 1)
+    )
+    assert excel_text(data) == "一枚目\n1\n二枚目\n2\n"
+
+
 def test_shared_and_inline_strings():
     data = build_xlsx(
         [("S", x_row("s:1", "i:直接", "s:0"))],
