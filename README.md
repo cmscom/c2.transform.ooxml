@@ -112,17 +112,19 @@ reading.
 
 Measured again on 2026-11-09 (Python 3.14, Plone 6.2) with made-up
 documents, one at a time, in a process that only reads the file and
-extracts its text (the peak is the maximum resident set size of that
-process, not only the memory of Python objects as above):
+extracts its text. The peak is the maximum resident set size of that
+process, not only the memory of Python objects as above. The time is
+that of the extraction only, without starting the process and reading
+the file:
 
-| Document | Peak memory of the process | Time | Stopped by |
+| Document | Peak memory of the process | Extraction time | Stopped by |
 |---|---|---|---|
-| One body part of about 60 MB, full of text | 75 MB | 0.7 s | The length of the text |
-| One part of 70 MiB of small empty elements | 30 MB | 8.6 s | The size of the part (64 MiB) |
-| A short body and five headers of about 60 MB each, without text | 29 MB | 30.0 s | The time (30 seconds), before the total size (256 MiB) |
-| Shared strings of about 9 million characters, used by 2 million cells | 50 MB | 0.1 s | The length of the text (the shared strings and the text together) |
-| About 40 MB of comments and processing instructions | 28 MB | 0.2 s | Nothing |
-| A central directory just under 2 MiB (38,003 entries) | 52 MB | 0.1 s | Nothing |
+| One body part of about 60 MB, full of text | 73.3 MiB | 0.7 s | The length of the text |
+| One part of 70 MiB of small empty elements | 29.0 MiB | 8.6 s | The size of the part (64 MiB) |
+| A short body and five headers of about 60 MB each, without text | 28.8 MiB | 30.0 s | The time (30 seconds), before the total size (256 MiB) |
+| Shared strings of about 9 million characters, used by 2 million cells | 48.8 MiB | 0.1 s | The length of the text (the shared strings and the text together) |
+| About 40 MB of comments and processing instructions | 27.5 MiB | 0.2 s | Nothing |
+| A central directory just under 2 MiB (38,003 entries) | 50.7 MiB | 0.1 s | Nothing |
 
 ## Installation
 
