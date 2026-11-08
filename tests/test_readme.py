@@ -59,3 +59,9 @@ def test_long_description_is_the_english_readme():
 def test_readmes_name_what_is_not_extracted(readme):
     text = read(readme)
     assert "SmartArt" in text
+
+
+def test_license_names_this_package():
+    text = read("LICENSE.txt")
+    assert text.startswith("  c2.transform.ooxml is copyright")
+    assert "msoffice" not in text
