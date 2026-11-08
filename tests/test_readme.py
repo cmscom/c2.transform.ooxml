@@ -51,3 +51,9 @@ def test_readmes_name_the_other_package_and_reindexing(readme):
 def test_long_description_is_the_english_readme():
     # tomllib is not in Python 3.10.
     assert '\nreadme = "README.md"\n' in read("pyproject.toml")
+
+
+@pytest.mark.parametrize("readme", README)
+def test_readmes_name_what_is_not_extracted(readme):
+    text = read(readme)
+    assert "SmartArt" in text

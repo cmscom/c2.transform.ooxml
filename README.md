@@ -43,9 +43,12 @@ formats `.doc`, `.xls` and `.ppt`.
 
 | Format | Extracted | Not extracted |
 |---|---|---|
-| Word | The body, tables, headers and footers, footnotes and endnotes, inserted tracked changes | Comments, deleted tracked changes, field codes |
+| Word | The body, tables, headers and footers, footnotes and endnotes, inserted tracked changes | Comments, deleted tracked changes, field codes, SmartArt |
 | Excel | Sheet names, cell values (text and numbers, the saved results of formulas) | Formulas, comments, phonetic readings |
-| PowerPoint | The text of the slides (also in tables and shapes), the speaker notes | Comments |
+| PowerPoint | The text of the slides (also in tables and shapes), the speaker notes | Comments, SmartArt |
+
+Embedded documents (such as a workbook in a presentation) and the text
+in images are not extracted.
 
 - Word: the body first, then the headers and footers, the footnotes and
   the endnotes. Every paragraph ends a line; tabs and line breaks are
