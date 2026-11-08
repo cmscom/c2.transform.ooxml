@@ -18,6 +18,10 @@ DEFAULT_PROFILE = "profile-c2.transform.ooxml:default"
 UNINSTALL_PROFILE = "profile-c2.transform.ooxml:uninstall"
 
 
+def portal_mimetype(transforms: TransformTool, name: str) -> bool:
+    return bool(transforms.mimetypes_registry.lookup(name))
+
+
 @pytest.fixture
 def transforms(portal: PloneSite) -> TransformTool:
     return portal.portal_transforms
@@ -118,6 +122,29 @@ class TestUninstall:
             "Could not unmap ooxml_to_text in portal_transforms: "
             "KeyError('text/plain'); the transform was removed anyway"
         ]
+
+    def test_missing_mapping_unmaps_every_mimetype(self, installer, transforms):
+        from c2.transform.ooxml import config
+
+        def names() -> list[tuple[str, str, str]]:
+            return [
+                (mt, output, t.name())
+                for mt, outputs in transforms._mtmap.items()
+                for output, chain in outputs.items()
+                for t in chain
+            ]
+
+        installer.install_product(PACKAGE_NAME)
+        others = [n for n in names() if n[2] != TRANSFORM_NAME]
+        del transforms._mtmap[DOCX]["text/plain"]
+        installer.uninstall_product(PACKAGE_NAME)
+        assert [n for n in names() if n[2] == TRANSFORM_NAME] == []
+        # The other transforms keep their mappings, and the MIME types stay.
+        assert [n for n in names() if n[2] != TRANSFORM_NAME] == [
+            n for n in others if not (n[0] == DOCX and n[1] == "text/plain")
+        ]
+        for m in config.ooxml_mimetypes:
+            assert portal_mimetype(transforms, m["mimetypes"][0])
 
     def test_install_again(self, installer, transforms):
         installer.install_product(PACKAGE_NAME)

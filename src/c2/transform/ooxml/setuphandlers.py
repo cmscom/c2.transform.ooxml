@@ -3,6 +3,7 @@ from c2.transform.ooxml import logger
 from plone.base.interfaces import INonInstallable
 from Products.CMFCore.utils import getToolByName
 from Products.GenericSetup.tool import SetupTool
+from Products.PortalTransforms.TransformEngine import TransformTool
 from zope.interface import implementer
 
 
@@ -48,6 +49,19 @@ def post_install(context: SetupTool) -> None:
     transforms.manage_addTransform(config.TRANSFORM_NAME, TRANSFORM_MODULE)
 
 
+def _unmap_everywhere(transforms: TransformTool, name: str) -> None:
+    """Remove the transform ``name`` from every mapping of portal_transforms.
+
+    Other transforms keep their places in the chains.
+    """
+    for outputs in transforms._mtmap.values():
+        for output, chain in list(outputs.items()):
+            kept = [t for t in chain if t.name() != name]
+            if len(kept) != len(chain):
+                # Set again, so that the persistent mapping is saved.
+                outputs[output] = kept
+
+
 def uninstall(context: SetupTool) -> None:
     """Remove the transform. The MIME types stay; others may use them."""
     transforms = getToolByName(context, "portal_transforms")
@@ -57,10 +71,13 @@ def uninstall(context: SetupTool) -> None:
         transforms.unregisterTransform(config.TRANSFORM_NAME)
     except KeyError as error:
         # unregisterTransform unmaps first and raises KeyError when a MIME
-        # type was never mapped to this transform; it has not deleted the
-        # transform yet. Delete it, so that installing again adds it anew.
-        # Without events, because Transform.manage_beforeDelete unmaps again
-        # and OFS re-raises that KeyError in debug mode for non-Managers.
+        # type was never mapped to this transform; it stops there, so the
+        # other MIME types are still mapped, and the transform is not
+        # deleted yet. Unmap it from every MIME type, then delete it, so
+        # that installing again adds it anew. Without events, because
+        # Transform.manage_beforeDelete unmaps again and OFS re-raises that
+        # KeyError in debug mode for non-Managers.
+        _unmap_everywhere(transforms, config.TRANSFORM_NAME)
         transforms._delObject(config.TRANSFORM_NAME, suppress_events=True)
         logger.warning(
             "Could not unmap %s in portal_transforms: %r; "
