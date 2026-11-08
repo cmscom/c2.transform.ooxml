@@ -107,7 +107,11 @@ class TextSink:
 
     def charge(self, n: int) -> None:
         """Count ``n`` characters that are kept elsewhere (the shared strings
-        of a workbook), so that they and the text share one limit."""
+        of a workbook), so that they and the text share one limit.
+
+        Without the raise here, the next ``write`` would stop at the limit
+        anyway; it matters when the shared strings alone go over it.
+        """
         if self._length + n > config.MAX_TEXT_CHARS:
             raise LimitReached(f"text length ({config.MAX_TEXT_CHARS} characters)")
         self._length += n
