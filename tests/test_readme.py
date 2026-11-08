@@ -71,3 +71,10 @@ def test_readmes_name_the_limit_of_libxml2(readme):
     text = read(readme)
     assert "libxml2" in text
     assert "10 MB" in text
+
+
+@pytest.mark.parametrize("readme", README)
+def test_readmes_give_the_measurements_of_2026_11_09(readme):
+    text = read(readme)
+    assert "2026-11-09" in text
+    assert "38,003" in text
