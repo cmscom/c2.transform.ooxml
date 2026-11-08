@@ -214,3 +214,19 @@ def test_comment_before_the_root_of_a_part():
         ),
     })
     assert extract_text(data) == "本文\n"
+
+
+def test_corrupt_lzma_data_returns_empty(caplog):
+    # An entry compressed with LZMA (method 14): valid LZMA properties,
+    # then corrupt data. zipfile raises lzma.LZMAError.
+    import io
+    import zipfile
+
+    payload = b"\x09\x14\x05\x00\x5d\x00\x00\x10\x00" + b"\xff" * 64
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("_rels/.rels", payload)
+    data = _set_compression(buffer.getvalue(), 14)
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert "LZMAError" in caplog.text

@@ -14,6 +14,7 @@ from collections.abc import Callable
 from lxml import etree
 
 import io
+import lzma
 import time
 import zipfile
 import zlib
@@ -78,6 +79,9 @@ def extract_text(data: bytes, clock: Callable[[], float] = time.monotonic) -> st
         # method (NotImplementedError).
         RuntimeError,
         zlib.error,
+        # Corrupt LZMA data (compression method 14); corrupt bzip2 data
+        # gives an OSError.
+        lzma.LZMAError,
     ) as error:
         # Only the type: the message can quote the document.
         logger.warning("No text extracted: %s", type(error).__name__)
