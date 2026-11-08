@@ -233,14 +233,16 @@ def test_corrupt_lzma_data_returns_empty(caplog):
 
 
 def test_broken_xml_message_is_not_logged(caplog):
-    # libxml2's message for an undefined entity quotes its name, so this
-    # fails if the message (not only the type) is logged.
+    # libxml2's message for a tag mismatch quotes the closing tag, so this
+    # fails if the message (not only the type) is logged. (An undefined
+    # entity does not do: with resolve_entities=False the message is only
+    # "no element found".)
     data = build_zip({
         "_rels/.rels": root_rels("word/document.xml"),
         "word/document.xml": (
             "<w:document xmlns:w='http://schemas.openxmlformats.org/"
             "wordprocessingml/2006/main'><w:body><w:p><w:r>"
-            "<w:t>&secretword;</w:t></w:r></w:p></w:body></w:document>"
+            "<w:t>x</w:secretword></w:r></w:p></w:body></w:document>"
         ),
     })
     with caplog.at_level(logging.WARNING, logger=LOGGER):
