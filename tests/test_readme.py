@@ -37,6 +37,8 @@ def test_readmes_state_limits(readme):
     assert f"{config.MAX_PARTS:,}" in text
     assert f"{config.MAX_TEXT_CHARS:,}" in text
     assert f"{config.TIME_LIMIT_SECONDS:g}" in text
+    assert f"{config.MAX_ENTRIES:,}" in text
+    assert f"{config.MAX_CENTRAL_DIRECTORY_BYTES // (1024 * 1024)} MiB" in text
 
 
 @pytest.mark.parametrize("readme", README)

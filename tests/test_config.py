@@ -84,3 +84,5 @@ def test_limits():
     assert config.MAX_PARTS == 5000
     assert config.MAX_TEXT_CHARS == 10_000_000
     assert config.TIME_LIMIT_SECONDS == 30.0
+    assert config.MAX_ENTRIES == 10_000
+    assert config.MAX_CENTRAL_DIRECTORY_BYTES == 16 * 1024 * 1024

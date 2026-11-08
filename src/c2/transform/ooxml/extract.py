@@ -3,6 +3,7 @@
 from c2.transform.ooxml import logger
 from c2.transform.ooxml.excel import extract_excel
 from c2.transform.ooxml.package import Budget
+from c2.transform.ooxml.package import check_central_directory
 from c2.transform.ooxml.package import is_el
 from c2.transform.ooxml.package import iter_xml
 from c2.transform.ooxml.package import LimitReached
@@ -56,6 +57,7 @@ def extract_text(data: bytes, clock: Callable[[], float] = time.monotonic) -> st
     budget = Budget(clock=clock)
     sink = TextSink(budget)
     try:
+        check_central_directory(data)
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             main = main_part(zf, budget)
             if main is None:

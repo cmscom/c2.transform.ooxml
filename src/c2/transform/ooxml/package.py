@@ -15,6 +15,7 @@ from typing import IO
 from urllib.parse import unquote
 
 import posixpath
+import struct
 import time
 import zipfile
 
@@ -131,6 +132,68 @@ class TextSink:
 
     def text(self) -> str:
         return "".join(self._chunks)
+
+
+# The records at the end of a zip (APPNOTE.TXT 4.3.14 to 4.3.16).
+_EOCD = struct.Struct("<4s4H2LH")
+_ZIP64_EOCD = struct.Struct("<4sQ2H2L4Q")
+_ZIP64_LOCATOR_SIZE = 20
+_CENTRAL_HEADER_SIZE = 46
+
+
+def _end_of_central_directory(data: bytes) -> tuple[int, int, int] | None:
+    """(number of entries, size of the central directory, position of the
+    end record) from the end records of ``data``, or None without them."""
+    pos = data.rfind(b"PK\x05\x06", max(0, len(data) - _EOCD.size - 0xFFFF))
+    if pos < 0 or pos + _EOCD.size > len(data):
+        return None
+    _sig, _disk, _cd_disk, on_disk, total, size, offset, _comment = _EOCD.unpack_from(
+        data, pos
+    )
+    if 0xFFFF not in (on_disk, total) and 0xFFFFFFFF not in (size, offset):
+        return max(on_disk, total), size, pos
+    # Zip64: its end record comes just before its locator.
+    zip64 = pos - _ZIP64_LOCATOR_SIZE - _ZIP64_EOCD.size
+    if (
+        zip64 < 0
+        or data[pos - _ZIP64_LOCATOR_SIZE : pos - _ZIP64_LOCATOR_SIZE + 4]
+        != b"PK\x06\x07"
+        or data[zip64 : zip64 + 4] != b"PK\x06\x06"
+    ):
+        return max(on_disk, total), size, pos
+    fields = _ZIP64_EOCD.unpack_from(data, zip64)
+    on_disk64, total64, size64 = fields[6], fields[7], fields[8]
+    return max(on_disk64, total64), size64, zip64
+
+
+def check_central_directory(data: bytes) -> None:
+    """Raise ``LimitReached`` when the central directory of the zip ``data``
+    has too many entries or is too large, before zipfile reads it all.
+
+    The number in the end record is not trusted: the entries are counted
+    in the central directory itself. A zip without end records is left
+    to zipfile, which refuses it.
+    """
+    found = _end_of_central_directory(data)
+    if found is None:
+        return
+    count, size, end = found
+    if count > config.MAX_ENTRIES:
+        raise LimitReached(f"number of entries ({config.MAX_ENTRIES})")
+    if size > config.MAX_CENTRAL_DIRECTORY_BYTES:
+        raise LimitReached(
+            f"size of the central directory ({config.MAX_CENTRAL_DIRECTORY_BYTES})"
+        )
+    pos = end - size
+    if pos < 0:
+        return
+    entries = 0
+    while pos + _CENTRAL_HEADER_SIZE <= end and data[pos : pos + 4] == b"PK\x01\x02":
+        entries += 1
+        if entries > config.MAX_ENTRIES:
+            raise LimitReached(f"number of entries ({config.MAX_ENTRIES})")
+        name, extra, comment = struct.unpack_from("<3H", data, pos + 28)
+        pos += _CENTRAL_HEADER_SIZE + name + extra + comment
 
 
 def is_el(element: etree._Element, ns: str, local: str) -> bool:

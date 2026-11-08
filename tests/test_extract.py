@@ -338,3 +338,119 @@ def test_broken_xml_message_is_not_logged(caplog):
         assert extract_text(data) == ""
     assert "XMLSyntaxError" in caplog.text
     assert "secretword" not in caplog.text
+
+
+def _to_zip64(data: bytes) -> bytes:
+    """``data`` with a Zip64 end of central directory (and its locator),
+    and the counts and sizes of the classic record set to 0xFFFF..."""
+    import struct
+
+    pos = data.rfind(b"PK\x05\x06")
+    _sig, _disk, _cd_disk, n_disk, n_total, cd_size, cd_offset, _comment = (
+        struct.unpack_from("<4s4H2LH", data, pos)
+    )
+    zip64 = struct.pack(
+        "<4sQ2H2L4Q",
+        b"PK\x06\x06",
+        44,
+        45,
+        45,
+        0,
+        0,
+        n_disk,
+        n_total,
+        cd_size,
+        cd_offset,
+    )
+    locator = struct.pack("<4sLQL", b"PK\x06\x07", 0, pos, 1)
+    eocd = struct.pack(
+        "<4s4H2LH", b"PK\x05\x06", 0, 0, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0
+    )
+    return data[:pos] + zip64 + locator + eocd
+
+
+def _many_entries(count: int) -> bytes:
+    """A Word document with ``count`` more empty entries."""
+    import io
+    import zipfile
+
+    source = zipfile.ZipFile(io.BytesIO(build_docx(w_p("本文"))))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as target:
+        for name in source.namelist():
+            target.writestr(name, source.read(name))
+        for i in range(count):
+            target.writestr(f"empty/{i}", b"")
+    return buffer.getvalue()
+
+
+@pytest.fixture
+def zipfile_reads(monkeypatch):
+    """The central directories that zipfile reads. Clear it after building
+    the test document (building it reads zips too)."""
+    import zipfile
+
+    reads = []
+    real = getattr(zipfile.ZipFile, "_RealGetContents")  # noqa: B009 (private)
+
+    def recording(self) -> None:
+        reads.append(self)
+        real(self)
+
+    monkeypatch.setattr(zipfile.ZipFile, "_RealGetContents", recording)
+    return reads
+
+
+def test_too_many_entries_are_not_read(monkeypatch, caplog, zipfile_reads):
+    monkeypatch.setattr(config, "MAX_ENTRIES", 10)
+    data = _many_entries(20)
+    zipfile_reads.clear()
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert zipfile_reads == []
+    assert "entries" in caplog.text
+
+
+def test_entries_within_the_limit(monkeypatch, zipfile_reads):
+    monkeypatch.setattr(config, "MAX_ENTRIES", 30)
+    data = _many_entries(20)
+    zipfile_reads.clear()
+    assert extract_text(data) == "本文\n"
+    assert len(zipfile_reads) == 1
+
+
+def test_a_lying_count_of_entries(monkeypatch, caplog, zipfile_reads):
+    # The end record says 1 entry; the central directory has 32.
+    import struct
+
+    monkeypatch.setattr(config, "MAX_ENTRIES", 10)
+    data = bytearray(_many_entries(20))
+    pos = data.rfind(b"PK\x05\x06")
+    struct.pack_into("<2H", data, pos + 8, 1, 1)
+    zipfile_reads.clear()
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(bytes(data)) == ""
+    assert zipfile_reads == []
+
+
+def test_central_directory_size_limit(monkeypatch, caplog, zipfile_reads):
+    monkeypatch.setattr(config, "MAX_CENTRAL_DIRECTORY_BYTES", 100)
+    data = build_docx(w_p("本文"))
+    zipfile_reads.clear()
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert zipfile_reads == []
+    assert "central directory" in caplog.text
+
+
+def test_zip64_end_record():
+    assert extract_text(_to_zip64(build_docx(w_p("本文")))) == "本文\n"
+
+
+def test_zip64_too_many_entries(monkeypatch, caplog, zipfile_reads):
+    monkeypatch.setattr(config, "MAX_ENTRIES", 10)
+    data = _to_zip64(_many_entries(20))
+    zipfile_reads.clear()
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert zipfile_reads == []
