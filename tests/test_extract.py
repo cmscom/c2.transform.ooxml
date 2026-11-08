@@ -340,9 +340,11 @@ def test_broken_xml_message_is_not_logged(caplog):
     assert "secretword" not in caplog.text
 
 
-def _to_zip64(data: bytes) -> bytes:
-    """``data`` with a Zip64 end of central directory (and its locator),
-    and the counts and sizes of the classic record set to 0xFFFF..."""
+def _to_zip64(data: bytes, sentinels: bool = True) -> bytes:
+    """``data`` with a Zip64 end of central directory (and its locator).
+
+    The counts and sizes of the classic record are set to 0xFFFF... (the
+    sentinels), or to 0 (zipfile still takes the Zip64 values)."""
     import struct
 
     pos = data.rfind(b"PK\x05\x06")
@@ -363,9 +365,12 @@ def _to_zip64(data: bytes) -> bytes:
         cd_offset,
     )
     locator = struct.pack("<4sLQL", b"PK\x06\x07", 0, pos, 1)
-    eocd = struct.pack(
-        "<4s4H2LH", b"PK\x05\x06", 0, 0, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0
-    )
+    if sentinels:
+        eocd = struct.pack(
+            "<4s4H2LH", b"PK\x05\x06", 0, 0, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0
+        )
+    else:
+        eocd = struct.pack("<4s4H2LH", b"PK\x05\x06", 0, 0, 0, 0, 0, 0, 0)
     return data[:pos] + zip64 + locator + eocd
 
 
@@ -450,6 +455,56 @@ def test_zip64_end_record():
 def test_zip64_too_many_entries(monkeypatch, caplog, zipfile_reads):
     monkeypatch.setattr(config, "MAX_ENTRIES", 10)
     data = _to_zip64(_many_entries(20))
+    zipfile_reads.clear()
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert zipfile_reads == []
+
+
+def _signature_in_offset(data: bytes) -> bytes:
+    """``data`` with the offset of the central directory in the classic end
+    record set to 0x06054b50, the bytes of the signature of that record.
+    zipfile corrects the offset (it reads the directory just before the
+    end record) and opens the zip."""
+    import struct
+
+    out = bytearray(data)
+    pos = out.rfind(b"PK\x05\x06")
+    struct.pack_into("<L", out, pos + 16, 0x06054B50)
+    return bytes(out)
+
+
+@pytest.mark.parametrize(
+    ("limit", "value"), [("MAX_ENTRIES", 10), ("MAX_CENTRAL_DIRECTORY_BYTES", 100)]
+)
+@pytest.mark.parametrize("shape", ["zip64-without-sentinels", "signature-in-offset"])
+def test_central_directory_check_is_not_bypassed(
+    monkeypatch, caplog, zipfile_reads, limit, value, shape
+):
+    data = _many_entries(20)
+    if shape == "zip64-without-sentinels":
+        data = _to_zip64(data, sentinels=False)
+    else:
+        data = _signature_in_offset(data)
+    zipfile_reads.clear()
+    # Without the limit, zipfile reads the whole central directory of these
+    # zips (the second gives no text later: its entries are misplaced).
+    extract_text(data)
+    assert len(zipfile_reads) == 1
+    zipfile_reads.clear()
+    monkeypatch.setattr(config, limit, value)
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
+    assert zipfile_reads == []
+
+
+def test_central_directory_cannot_be_checked(monkeypatch, caplog, zipfile_reads):
+    # Without zipfile's own reading of the end records (a private function),
+    # the zip is refused.
+    from c2.transform.ooxml import package
+
+    data = build_docx(w_p("本文"))
+    monkeypatch.setattr(package, "_ZIPFILE_END_RECORD", "_NoSuchFunction")
     zipfile_reads.clear()
     with caplog.at_level(logging.WARNING, logger=LOGGER):
         assert extract_text(data) == ""

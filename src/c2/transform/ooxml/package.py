@@ -14,6 +14,7 @@ from lxml import etree
 from typing import IO
 from urllib.parse import unquote
 
+import io
 import posixpath
 import struct
 import time
@@ -134,66 +135,93 @@ class TextSink:
         return "".join(self._chunks)
 
 
-# The records at the end of a zip (APPNOTE.TXT 4.3.14 to 4.3.16).
-_EOCD = struct.Struct("<4s4H2LH")
-_ZIP64_EOCD = struct.Struct("<4sQ2H2L4Q")
-_ZIP64_LOCATOR_SIZE = 20
-_CENTRAL_HEADER_SIZE = 46
+class UncheckableZip(ValueError):
+    """The central directory of a zip cannot be checked before it is read
+    (this Python's zipfile does not have the functions it is checked with).
+    """
 
 
-def _end_of_central_directory(data: bytes) -> tuple[int, int, int] | None:
-    """(number of entries, size of the central directory, position of the
-    end record) from the end records of ``data``, or None without them."""
-    pos = data.rfind(b"PK\x05\x06", max(0, len(data) - _EOCD.size - 0xFFFF))
-    if pos < 0 or pos + _EOCD.size > len(data):
+# zipfile's own reading of the end records (Zip64 included), so that the
+# check finds the central directory that ZipFile will read. These are
+# private functions of zipfile (in Python 3.10 to 3.14);
+# _handle_prepended_data is in Python 3.12 and later.
+_ZIPFILE_END_RECORD = "_EndRecData"
+_ZIPFILE_PREPENDED = "_handle_prepended_data"
+_CENTRAL_HEADER = struct.Struct("<4s4B4HL2L5H2L")
+
+
+def _zipfile_name(name: str) -> object:
+    try:
+        return getattr(zipfile, name)
+    except AttributeError:
+        raise UncheckableZip(name) from None
+
+
+def _central_directory(data: bytes) -> tuple[int, int, int] | None:
+    """(start, size, declared number of entries) of the central directory
+    that ZipFile reads, or None when zipfile refuses the zip by itself
+    before it reads any entry."""
+    end_record = _zipfile_name(_ZIPFILE_END_RECORD)
+    ecd_size = int(_zipfile_name("_ECD_SIZE"))  # type: ignore[call-overload]
+    ecd_offset = int(_zipfile_name("_ECD_OFFSET"))  # type: ignore[call-overload]
+    ecd_location = int(_zipfile_name("_ECD_LOCATION"))  # type: ignore[call-overload]
+    ecd_entries = int(_zipfile_name("_ECD_ENTRIES_TOTAL"))  # type: ignore[call-overload]
+    try:
+        endrec = end_record(io.BytesIO(data))  # type: ignore[operator]
+    except OSError:
         return None
-    _sig, _disk, _cd_disk, on_disk, total, size, offset, _comment = _EOCD.unpack_from(
-        data, pos
-    )
-    if 0xFFFF not in (on_disk, total) and 0xFFFFFFFF not in (size, offset):
-        return max(on_disk, total), size, pos
-    # Zip64: its end record comes just before its locator.
-    zip64 = pos - _ZIP64_LOCATOR_SIZE - _ZIP64_EOCD.size
-    if (
-        zip64 < 0
-        or data[pos - _ZIP64_LOCATOR_SIZE : pos - _ZIP64_LOCATOR_SIZE + 4]
-        != b"PK\x06\x07"
-        or data[zip64 : zip64 + 4] != b"PK\x06\x06"
-    ):
-        return max(on_disk, total), size, pos
-    fields = _ZIP64_EOCD.unpack_from(data, zip64)
-    on_disk64, total64, size64 = fields[6], fields[7], fields[8]
-    return max(on_disk64, total64), size64, zip64
+    if not endrec:
+        return None
+    size = int(endrec[ecd_size])
+    prepended = getattr(zipfile, _ZIPFILE_PREPENDED, None)
+    if prepended is not None:
+        # Python 3.12 and later.
+        try:
+            offset, concat = prepended(endrec, 0)
+        except zipfile.BadZipFile:
+            return None
+    else:
+        offset = int(endrec[ecd_offset])
+        concat = int(endrec[ecd_location]) - size - offset
+    start = int(offset) + int(concat)
+    if start < 0:
+        return None
+    return start, size, int(endrec[ecd_entries])
 
 
 def check_central_directory(data: bytes) -> None:
     """Raise ``LimitReached`` when the central directory of the zip ``data``
     has too many entries or is too large, before zipfile reads it all.
 
-    The number in the end record is not trusted: the entries are counted
-    in the central directory itself. A zip without end records is left
-    to zipfile, which refuses it.
+    The central directory is found as ZipFile finds it, with zipfile's own
+    functions; without them, ``UncheckableZip`` is raised. The number of
+    entries in the end record is not trusted: the entries are counted as
+    ZipFile reads them.
     """
-    found = _end_of_central_directory(data)
+    found = _central_directory(data)
     if found is None:
         return
-    count, size, end = found
-    if count > config.MAX_ENTRIES:
+    start, size, declared = found
+    if declared > config.MAX_ENTRIES:
         raise LimitReached(f"number of entries ({config.MAX_ENTRIES})")
     if size > config.MAX_CENTRAL_DIRECTORY_BYTES:
         raise LimitReached(
             f"size of the central directory ({config.MAX_CENTRAL_DIRECTORY_BYTES})"
         )
-    pos = end - size
-    if pos < 0:
-        return
+    directory = data[start : start + size]
+    total = 0
     entries = 0
-    while pos + _CENTRAL_HEADER_SIZE <= end and data[pos : pos + 4] == b"PK\x01\x02":
+    while total < size:
+        header = directory[total : total + _CENTRAL_HEADER.size]
+        if len(header) != _CENTRAL_HEADER.size or header[:4] != b"PK\x01\x02":
+            # zipfile raises BadZipFile here.
+            return
         entries += 1
         if entries > config.MAX_ENTRIES:
             raise LimitReached(f"number of entries ({config.MAX_ENTRIES})")
-        name, extra, comment = struct.unpack_from("<3H", data, pos + 28)
-        pos += _CENTRAL_HEADER_SIZE + name + extra + comment
+        fields = _CENTRAL_HEADER.unpack(header)
+        name, extra, comment = fields[12], fields[13], fields[14]
+        total += _CENTRAL_HEADER.size + name + extra + comment
 
 
 def is_el(element: etree._Element, ns: str, local: str) -> bool:
