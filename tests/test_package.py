@@ -324,3 +324,25 @@ def test_comment_and_pi_before_the_root():
     )
     zf = open_zip(build_zip({"a.xml": part}))
     assert texts(zf, "a.xml") == ["x"]
+
+
+def test_main_part_after_other_relationships():
+    # Office writes the properties and the thumbnail before the document.
+    package_rels = rels([
+        (
+            "rId3",
+            "http://schemas.openxmlformats.org/package/2006/relationships/"
+            "metadata/core-properties",
+            "docProps/core.xml",
+        ),
+        ("rId2", "extended-properties", "docProps/app.xml"),
+        (
+            "rId4",
+            "http://schemas.openxmlformats.org/package/2006/relationships/"
+            "metadata/thumbnail",
+            "docProps/thumbnail.jpeg",
+        ),
+        ("rId1", "officeDocument", "word/document.xml"),
+    ])
+    zf = open_zip(build_zip({"_rels/.rels": package_rels}))
+    assert package.main_part(zf, Budget()) == "word/document.xml"
