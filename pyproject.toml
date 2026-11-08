@@ -1,0 +1,249 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "c2.transform.ooxml"
+version = "1.0.0b1.dev0"
+description = "Make Office Open XML files searchable in Plone"
+readme = "README.md"
+license = {text = "GPL version 2 or later"}
+requires-python = ">=3.10,<3.15"
+authors = [
+    { name = "Manabu TERADA", email = "terada@cmscom.jp" },
+]
+keywords = [
+    "Plone",
+    "transform",
+    "Office Open XML",
+    "docx",
+    "xlsx",
+    "pptx",
+    "search",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: Plone",
+    "Framework :: Plone :: 6.0",
+    "Framework :: Plone :: 6.1",
+    "Framework :: Plone :: 6.2",
+    "Framework :: Plone :: Addon",
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "lxml",
+    "plone.base",
+    "Products.CMFPlone",
+    "Products.GenericSetup",
+    "Products.MimetypesRegistry",
+    "Products.PortalTransforms",
+]
+
+[project.optional-dependencies]
+test = [
+    "horse-with-no-namespace",
+    "plone.api",
+    "plone.app.contenttypes",
+    "plone.app.testing",
+    "pytest",
+    "pytest-cov",
+    "pytest-plone>=0.5.0",
+]
+release = [
+    "zest.releaser[recommended]",
+    "zestreleaser.towncrier",
+    "zest.pocompile",
+]
+
+[dependency-groups]
+dev = [
+    "mypy==2.4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/cmscom/c2.transform.ooxml"
+PyPI = "https://pypi.org/project/c2.transform.ooxml"
+Source = "https://github.com/cmscom/c2.transform.ooxml"
+Tracker = "https://github.com/cmscom/c2.transform.ooxml/issues"
+
+[project.entry-points."z3c.autoinclude.plugin"]
+target = "plone"
+
+[tool.setuptools]
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
+
+[tool.towncrier]
+directory = "news/"
+filename = "CHANGELOG.md"
+start_string = "<!-- towncrier release notes start -->\n"
+title_format = "## {version} ({project_date})"
+template = "news/.changelog_template.jinja"
+issue_format = "[#{issue}](https://github.com/cmscom/c2.transform.ooxml/issues/{issue})"
+underlines = ["", "", ""]
+
+[[tool.towncrier.type]]
+directory = "breaking"
+name = "Breaking changes:"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "feature"
+name = "New features:"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "bugfix"
+name = "Bug fixes:"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "internal"
+name = "Internal:"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "documentation"
+name = "Documentation:"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "tests"
+name = "Tests"
+showcontent = true
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+fix = true
+lint.select = [
+    # flake8-2020
+    "YTT",
+    # flake8-annotations
+    "ANN",
+    # flake8-bandit
+    "S",
+    # flake8-bugbear
+    "B",
+    # flake8-builtins
+    "A",
+    # flake8-comprehensions
+    "C4",
+    # flake8-debugger
+    "T10",
+    # flake8-simplify
+    "SIM",
+    # mccabe
+    "C90",
+    # pycodestyle
+    "E", "W",
+    # pyflakes
+    "F",
+    # pygrep-hooks
+    "PGH",
+    # pyupgrade
+    "UP",
+    # ruff
+    "RUF",
+]
+lint.ignore = [
+    # DoNotAssignLambda
+    "E731",
+]
+
+[tool.ruff.lint.isort]
+case-sensitive = false
+no-sections = true
+force-single-line = true
+from-first = true
+lines-after-imports = 2
+lines-between-types = 1
+order-by-type = false
+
+[tool.ruff.format]
+preview = true
+
+[tool.ruff.lint.per-file-ignores]
+# Test functions take pytest fixtures and return nothing; fixtures and
+# helpers in tests are annotated by convention.
+"tests/*" = ["ANN001", "ANN201", "E501", "RUF001", "S101"]
+
+[tool.mypy]
+python_version = "3.10"
+# Check the sources, not the installed package (src/c2 and src/c2/transform
+# are namespace packages).
+mypy_path = "src"
+explicit_package_bases = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+# Zope, Plone and their test tools have no type information.
+[[tool.mypy.overrides]]
+module = [
+    "Acquisition",
+    "lxml",
+    "OFS.Application",
+    "plone",
+    "plone.app.contenttypes.content",
+    "plone.app.contenttypes.indexers",
+    "plone.app.contenttypes.testing",
+    "plone.app.testing",
+    "plone.base.interfaces",
+    "plone.namedfile.file",
+    "Products.CMFCore.utils",
+    "Products.CMFPlone.controlpanel.browser.quickinstaller",
+    "Products.CMFPlone.Portal",
+    "Products.GenericSetup.tool",
+    "Products.PortalTransforms.data",
+    "Products.PortalTransforms.interfaces",
+    "Products.PortalTransforms.TransformEngine",
+    "pytest_plone",
+    "zope.component",
+    "zope.configuration.config",
+    "zope.interface",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The tests import their helpers as tests.<module>.
+pythonpath = ["."]
+
+[tool.coverage.run]
+source_pkgs = ["c2.transform.ooxml", "tests"]
+branch = true
+parallel = true
+
+[tool.check-manifest]
+# Files in git that are not in the sdist. The sdist has the package, the
+# README, the changelog and the licenses only; MANIFEST.in leaves out the
+# rest (tests/ with "prune"), and check-manifest ignores .github/ itself.
+ignore = [
+    ".editorconfig",
+    ".gitattributes",
+    "news/**",
+]
+
+[tool.zest-releaser]
+# fullrelease makes the tag; the release workflow uploads to PyPI.
+release = false

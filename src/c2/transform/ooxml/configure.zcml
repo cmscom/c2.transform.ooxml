@@ -1,0 +1,23 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:genericsetup="http://namespaces.zope.org/genericsetup"
+    i18n_domain="c2.transform.ooxml"
+    >
+
+  <genericsetup:registerProfile
+      name="default"
+      title="c2.transform.ooxml: Install"
+      description="Register the Office Open XML to text transform."
+      provides="Products.GenericSetup.interfaces.EXTENSION"
+      directory="profiles/default"
+      />
+
+  <genericsetup:registerProfile
+      name="uninstall"
+      title="c2.transform.ooxml: Uninstall"
+      description="Remove the Office Open XML to text transform."
+      provides="Products.GenericSetup.interfaces.EXTENSION"
+      directory="profiles/uninstall"
+      />
+
+</configure>

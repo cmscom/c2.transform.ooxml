@@ -1,0 +1,2 @@
+# Keep LF line ends in every text file.
+* text=auto eol=lf
