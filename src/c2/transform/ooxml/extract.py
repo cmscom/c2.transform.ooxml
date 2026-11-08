@@ -48,8 +48,9 @@ def extract_text(data: bytes, clock: Callable[[], float] = time.monotonic) -> st
     - A limit (size, parts, text, time) stops the reading: the text read so
       far is returned.
     - A file that is not a zip (a password-protected document is an OLE
-      container), has no main part of a known format, or is broken gives
-      no text.
+      container), has no main part of a known format, or whose main part
+      is broken gives no text. A broken part after the main part keeps
+      the text read so far.
     Problems are logged as warnings, without the content of the document.
     """
     budget = Budget(clock=clock)
@@ -84,6 +85,14 @@ def extract_text(data: bytes, clock: Callable[[], float] = time.monotonic) -> st
         lzma.LZMAError,
     ) as error:
         # Only the type: the message can quote the document.
+        if sink.main_read:
+            # A broken part after the main part (a header, a sheet, a
+            # slide): keep the text read so far, as at a limit.
+            logger.warning(
+                "Text extraction stopped at a broken part: %s",
+                type(error).__name__,
+            )
+            return sink.text()
         logger.warning("No text extracted: %s", type(error).__name__)
         return ""
     return sink.text()

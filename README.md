@@ -75,8 +75,9 @@ apply to one document:
 - When a limit is reached, the text read so far is returned and a warning
   is logged.
 - A file that is not a zip (a password-protected document is not one), a
-  broken zip or broken XML gives no text, with a warning. Saving the file
-  in Plone still works.
+  broken zip or a broken main part gives no text, with a warning. A broken
+  part after the main part (a header, a sheet, a slide) keeps the text
+  read so far, with a warning. Saving the file in Plone still works.
 - The XML is read without entities, DTDs or network access; a part with
   a DOCTYPE is refused.
 - The log never contains the content of a document.

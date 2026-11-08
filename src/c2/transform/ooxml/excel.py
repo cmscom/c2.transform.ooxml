@@ -121,6 +121,7 @@ def extract_excel(
 ) -> None:
     """Write the name of each sheet on a line, then its rows."""
     sheets = _sheets(zf, main, budget)
+    sink.main_read = True
     rels = relationships(zf, main, budget)
     targets = {rel.rel_id: rel.target for rel in rels}
     strings: list[str] = []

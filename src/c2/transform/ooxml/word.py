@@ -54,6 +54,7 @@ def extract_word(
     """Write the text of the body, then of the headers and footers (in the
     order of their relationships), the footnotes and the endnotes."""
     _write_part(zf, main, sink, budget)
+    sink.main_read = True
     rels = relationships(zf, main, budget)
     for kinds in _AFTER_BODY:
         for rel in rels:

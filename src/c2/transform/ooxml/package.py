@@ -87,6 +87,9 @@ class TextSink:
 
     def __init__(self, budget: Budget) -> None:
         self.budget = budget
+        # Set by the extractors once the main part is read: an error after
+        # it keeps the text written so far.
+        self.main_read = False
         self._chunks: list[str] = []
         self._length = 0
 

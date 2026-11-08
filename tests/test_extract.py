@@ -86,16 +86,55 @@ def test_broken_xml_returns_empty(caplog):
     assert "secret-body-text" not in caplog.text
 
 
-def test_broken_header_returns_empty(caplog):
-    # A broken part after the body: the document is broken; no text.
+def replace_part(data: bytes, name: str, content: str) -> bytes:
+    """``data`` with the part ``name`` replaced."""
+    import io
+    import zipfile
+
+    source = zipfile.ZipFile(io.BytesIO(data))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as target:
+        for item in source.namelist():
+            body = content.encode() if item == name else source.read(item)
+            target.writestr(item, body)
+    return buffer.getvalue()
+
+
+def test_broken_header_keeps_the_body(caplog):
+    # A broken part after the main part: the text read so far stays, as at
+    # a limit.
     data = build_docx(
         w_p("本文"),
         headers=[w_p("H")],
         extra_parts={"word/header1.xml": "<w:hdr xmlns:w='x'><w:p>"},
     )
     with caplog.at_level(logging.WARNING, logger=LOGGER):
-        assert extract_text(data) == ""
+        assert extract_text(data) == "本文\n"
     assert "XMLSyntaxError" in caplog.text
+
+
+def test_broken_second_sheet_keeps_the_first(caplog):
+    data = build_xlsx([("一", x_row("i:最初")), ("二", x_row("i:次"))])
+    data = replace_part(data, "xl/worksheets/sheet2.xml", "<s:worksheet")
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == "一\n最初\n二\n"
+    assert "XMLSyntaxError" in caplog.text
+
+
+def test_broken_second_slide_keeps_the_first(caplog):
+    data = build_pptx([(shape(a_p("最初")), None), (shape(a_p("次")), None)])
+    data = replace_part(data, "ppt/slides/slide2.xml", "<p:sld")
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == "最初\n"
+    assert "XMLSyntaxError" in caplog.text
+
+
+def test_broken_shared_strings_give_no_text(caplog):
+    # Nothing is written before the shared strings are read.
+    data = build_xlsx([("S", x_row("s:0"))], shared=["<s:t>A</s:t>"])
+    data = replace_part(data, "xl/sharedStrings.xml", "<s:sst")
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        assert extract_text(data) == ""
 
 
 def test_doctype_returns_empty(caplog):

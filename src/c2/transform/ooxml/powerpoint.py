@@ -42,8 +42,10 @@ def extract_powerpoint(
     zf: zipfile.ZipFile, main: str, sink: TextSink, budget: Budget
 ) -> None:
     """Write the text of each slide, then of its notes. Comments are not read."""
+    slide_ids = _slide_ids(zf, main, budget)
+    sink.main_read = True
     targets = {rel.rel_id: rel.target for rel in relationships(zf, main, budget)}
-    for rel_id in _slide_ids(zf, main, budget):
+    for rel_id in slide_ids:
         slide = targets.get(rel_id)
         if slide is None:
             continue
