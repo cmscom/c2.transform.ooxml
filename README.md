@@ -112,9 +112,10 @@ reading.
 
 Measured again on 2026-11-09 (Python 3.14, Plone 6.2) with made-up
 documents, one at a time, in a process that only reads the file and
-extracts its text:
+extracts its text (the peak is the maximum resident set size of that
+process, not only the memory of Python objects as above):
 
-| Document | Peak memory | Time | Stopped by |
+| Document | Peak memory of the process | Time | Stopped by |
 |---|---|---|---|
 | One body part of about 60 MB, full of text | 75 MB | 0.7 s | The length of the text |
 | One part of 70 MiB of small empty elements | 30 MB | 8.6 s | The size of the part (64 MiB) |
