@@ -1,64 +1,250 @@
 name: Release
 
-# Publishes to PyPI with Trusted Publishing when zest.releaser's fullrelease
-# pushes a version tag such as 1.0.0b1 (no "v" prefix).
+# Makes a release from main when it is run by hand (Actions, "Release", "Run
+# workflow") with the version to release, such as 1.0.0a1:
+#
+# 1. prepare: check the version, write the news fragments into CHANGELOG.md,
+#    set the version, commit "Preparing release <version>" and tag it (no
+#    "v" prefix). push-release pushes both.
+# 2. test, build: run the tests of that commit, build and check the sdist
+#    and the wheel.
+# 3. publish: upload them to PyPI with Trusted Publishing, after a reviewer
+#    of the pypi environment approves it.
+# 4. sign: sign them with Sigstore. github-release makes a GitHub Release.
+# 5. development: set the next development version and commit it.
+#    push-development pushes it.
+#
+# All of it is one workflow because a tag pushed with GITHUB_TOKEN does not
+# start other workflows. The steps that need code are in
+# .github/scripts/release.py (tested in tests/test_release_script.py).
 #
 # Every action is pinned to a full commit SHA of a release that has been out
 # for at least two weeks (cooldown). The comment after each SHA is the tag.
+#
+# Only push-release, push-development and github-release may write to the
+# repository. They run nothing but actions/checkout,
+# actions/download-artifact, git and gh: the commits come from the jobs
+# before them as git bundles, which they check, and the token is given to
+# the step that uses it only. No checkout keeps credentials.
 
 on:
-  push:
-    tags:
-      - '[0-9]*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, such as 1.0.0a1 (PEP 440, no "v")
+        required: true
+        type: string
 
 permissions:
   contents: read
 
-# Never cancel a release half way. The group must differ from the one in
-# plone-package.yml, which runs inside this workflow (group names ignore case).
+# One release at a time, and never cancel one half way. The group must differ
+# from the one in plone-package.yml, which runs inside this workflow (group
+# names ignore case).
 concurrency:
-  group: publish-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
-jobs:
-  test:
-    # actionlint 1.7.12 does not know the self-repository syntax ($/...) yet.
-    # A reusable workflow given with ./ is read from the commit of this run,
-    # not from the files of a runner.
-    uses: ./.github/workflows/plone-package.yml # zizmor: ignore[self-repository]
+env:
+  # tomllib needs Python 3.11 or later.
+  RELEASE_PYTHON: '3.12'
+  PACKAGING: packaging==26.3
 
-  build:
-    needs: test
-    runs-on: ubuntu-latest
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
+          version: '0.13.4'
+          # The sha256 of uv-x86_64-unknown-linux-gnu.tar.gz of that version, in
+          # hex without "sha256:" (setup-uv v10.0.1 knows none for 0.13.4). All
+          # the jobs run on ubuntu-24.04, which is x86_64. Change it with the version.
+          checksum: '2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f'
+          enable-cache: false
+      - name: Check the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          uv run --no-project --python "$RELEASE_PYTHON" --with "$PACKAGING" \
+            .github/scripts/release.py check "$VERSION"
+      - name: Write the news fragments into CHANGELOG.md
+        env:
+          VERSION: ${{ inputs.version }}
+        run: uvx towncrier@26.9.0 build --version "$VERSION" --yes
+      - name: Set the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          uv run --no-project --python "$RELEASE_PYTHON" --with "$PACKAGING" \
+            .github/scripts/release.py set-version "$VERSION"
+          git diff --stat
+      - name: Commit, tag and bundle
+        id: commit
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit --all --message "Preparing release $VERSION"
+          git tag --annotate "$VERSION" --message "Tagging $VERSION"
+          git bundle create "$RUNNER_TEMP/release.bundle" \
+            "refs/tags/$VERSION" "^$GITHUB_SHA"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-bundle
+          path: ${{ runner.temp }}/release.bundle
+          if-no-files-found: error
+          retention-days: 7
+
+  push-release:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    permissions:
+      # Push the release commit to main and the tag
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-bundle
+          path: ${{ runner.temp }}
+      - name: Take the commit and the tag from the bundle
+        env:
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          git bundle verify "$RUNNER_TEMP/release.bundle"
+          git fetch "$RUNNER_TEMP/release.bundle" "refs/tags/$VERSION:refs/tags/$VERSION"
+          tagged=$(git rev-parse "refs/tags/$VERSION^{commit}")
+          # One commit with one parent, the commit of this run
+          if [ "$(git rev-list --parents -n 1 "$tagged")" != "$SHA $GITHUB_SHA" ]; then
+            echo "::error::The bundle does not have the release commit $SHA on $GITHUB_SHA"
+            exit 1
+          fi
+          # It changes pyproject.toml and CHANGELOG.md and removes news
+          # fragments, nothing else.
+          other=$(git diff --no-renames --name-status "$GITHUB_SHA" "$tagged" | awk -F '\t' '
+            !(($1 == "M" && ($2 == "pyproject.toml" || $2 == "CHANGELOG.md")) ||
+              ($1 == "D" && $2 ~ /^news\/[^.\/][^\/]*$/))')
+          if [ -n "$other" ]; then
+            echo "::error::The release commit changes other files:"
+            echo "$other"
+            exit 1
+          fi
+      - name: Push
+        env:
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0)
+          echo "::add-mask::$auth"
+          # Both or none: if main has moved since the run started, nothing is
+          # pushed.
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+            push --atomic origin "$SHA:refs/heads/main" "refs/tags/$VERSION"
+
+  test:
+    needs: [prepare, push-release]
+    # actionlint 1.7.12 does not know the self-repository syntax ($/...) yet.
+    # A reusable workflow given with ./ is read from the commit of this run,
+    # not from the files of a runner.
+    uses: ./.github/workflows/plone-package.yml # zizmor: ignore[self-repository]
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+
+  build:
+    needs: [prepare, test]
+    runs-on: ubuntu-24.04
+    outputs:
+      prerelease: ${{ steps.prerelease.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: '0.13.4'
+          # The sha256 of uv-x86_64-unknown-linux-gnu.tar.gz of that version, in
+          # hex without "sha256:" (setup-uv v10.0.1 knows none for 0.13.4). All
+          # the jobs run on ubuntu-24.04, which is x86_64. Change it with the version.
+          checksum: '2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f'
           enable-cache: false
       - name: Check that the tag is the version in pyproject.toml
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.version }}
         run: |
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
           if [ "$version" != "$TAG" ]; then
             echo "::error::The tag $TAG is not the version $version in pyproject.toml"
             exit 1
           fi
+      - name: Tell whether it is a pre-release
+        id: prerelease
+        env:
+          TAG: ${{ inputs.version }}
+        run: |
+          prerelease=$(uv run --no-project --python "$RELEASE_PYTHON" --with "$PACKAGING" \
+            .github/scripts/release.py prerelease "$TAG")
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
       - name: Build the sdist and the wheel
         run: uv build --out-dir dist
       - name: Check the distributions
         run: uvx twine@7.0.0 check --strict dist/*
+      - name: Check that the sdist has the files of git that it should have
+        run: uvx check-manifest@0.51
+      - name: Check that the wheel contains the ZCML and the profiles
+        run: |
+          files=$(unzip -Z1 dist/*.whl)
+          for name in \
+            c2/transform/ooxml/configure.zcml \
+            c2/transform/ooxml/profiles/default/metadata.xml \
+            c2/transform/ooxml/profiles/uninstall/metadata.xml; do
+            if ! grep -qxF "$name" <<< "$files"; then
+              echo "::error::$name is not in the wheel"
+              exit 1
+            fi
+          done
+      - name: Take the notes of this version from CHANGELOG.md
+        env:
+          TAG: ${{ inputs.version }}
+        run: |
+          # The section starts at "## <version> (<date>)" and ends before the
+          # next "## " heading.
+          mkdir notes
+          awk -v heading="## $TAG (" '
+            index($0, heading) == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > notes/notes.md
+          if ! grep -q '[^[:space:]]' notes/notes.md; then
+            echo "::error::No section for $TAG in CHANGELOG.md"
+            exit 1
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
           if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: notes
+          path: notes/notes.md
+          if-no-files-found: error
 
   publish:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: pypi
       url: https://pypi.org/p/c2.transform.ooxml
@@ -71,19 +257,19 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          # A re-run after a partial upload uploads only the missing files.
+          skip-existing: true
 
-  github-release:
+  sign:
     needs: publish
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
-      # gh release create
-      contents: write
+      # actions/download-artifact needs no more
+      contents: read
       # Sigstore
       id-token: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
@@ -94,29 +280,40 @@ jobs:
           inputs: >-
             ./dist/*.tar.gz
             ./dist/*.whl
-      - name: Take the notes of this version from CHANGELOG.md
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          # The section starts at "## <version> (<date>)" and ends before the
-          # next "## " heading.
-          awk -v heading="## $TAG (" '
-            index($0, heading) == 1 { found = 1; next }
-            found && /^## / { exit }
-            found { print }
-          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
-          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
-            echo "::error::No section for $TAG in CHANGELOG.md"
-            exit 1
-          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signatures
+          path: dist/*.sigstore.json
+          if-no-files-found: error
+
+  github-release:
+    needs: [build, sign]
+    runs-on: ubuntu-24.04
+    permissions:
+      # gh release create
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: signatures
+          path: dist/
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: notes
+          path: ${{ runner.temp }}
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.version }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
-          # A version with a, b or rc (PEP 440) is a pre-release.
+          ls -l dist/
           prerelease=()
-          if [[ "$TAG" =~ (a|b|rc)[0-9]+$ ]]; then
+          if [ "$PRERELEASE" = true ]; then
             prerelease=(--prerelease)
           fi
           gh release create "$TAG" dist/* \
@@ -125,3 +322,110 @@ jobs:
             --title "$TAG" \
             --notes-file "$RUNNER_TEMP/notes.md" \
             "${prerelease[@]}"
+
+  development:
+    needs: [prepare, github-release]
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: '0.13.4'
+          # The sha256 of uv-x86_64-unknown-linux-gnu.tar.gz of that version, in
+          # hex without "sha256:" (setup-uv v10.0.1 knows none for 0.13.4). All
+          # the jobs run on ubuntu-24.04, which is x86_64. Change it with the version.
+          checksum: '2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f'
+          enable-cache: false
+      - name: Set the development version
+        id: next
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          next=$(uv run --no-project --python "$RELEASE_PYTHON" --with "$PACKAGING" \
+            .github/scripts/release.py back-to-development "$VERSION")
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          git diff
+      - name: Commit and bundle
+        id: commit
+        env:
+          NEXT: ${{ steps.next.outputs.version }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch --create development
+          git commit --all --message "Back to development: ${NEXT%.dev0}"
+          git bundle create "$RUNNER_TEMP/development.bundle" \
+            refs/heads/development "^$SHA"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: development-bundle
+          path: ${{ runner.temp }}/development.bundle
+          if-no-files-found: error
+          retention-days: 7
+
+  push-development:
+    needs: [prepare, development]
+    runs-on: ubuntu-24.04
+    permissions:
+      # Push the commit with the development version to main
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: development-bundle
+          path: ${{ runner.temp }}
+      - name: Stop if main has moved since the release commit
+        env:
+          SHA: ${{ needs.prepare.outputs.sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          main=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$main" != "$SHA" ]; then
+            echo "::error::main is at $main, not at the release commit $SHA. The release is done; set the development version by hand."
+            echo "On an up-to-date main: run '.github/scripts/release.py back-to-development $VERSION'"
+            echo "(it needs the packaging distribution), commit pyproject.toml with the"
+            echo "message 'Back to development: <the printed version without .dev0>' and push."
+            exit 1
+          fi
+      - name: Take the commit from the bundle
+        env:
+          SHA: ${{ needs.prepare.outputs.sha }}
+          NEXT_SHA: ${{ needs.development.outputs.sha }}
+        run: |
+          git bundle verify "$RUNNER_TEMP/development.bundle"
+          git fetch "$RUNNER_TEMP/development.bundle" refs/heads/development:refs/heads/development
+          head=$(git rev-parse refs/heads/development)
+          # One commit with one parent, the release commit
+          if [ "$(git rev-list --parents -n 1 "$head")" != "$NEXT_SHA $SHA" ]; then
+            echo "::error::The bundle does not have the development commit $NEXT_SHA on $SHA"
+            exit 1
+          fi
+          # It changes pyproject.toml, nothing else.
+          other=$(git diff --no-renames --name-status "$SHA" "$head" | awk -F '\t' '
+            !($1 == "M" && $2 == "pyproject.toml")')
+          if [ -n "$other" ]; then
+            echo "::error::The development commit changes other files:"
+            echo "$other"
+            exit 1
+          fi
+      - name: Push
+        env:
+          NEXT_SHA: ${{ needs.development.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0)
+          echo "::add-mask::$auth"
+          # Not forced: if main has moved since the check, the push fails.
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+            push origin "$NEXT_SHA:refs/heads/main"

@@ -60,11 +60,6 @@ test = [
     "pytest-plone>=0.5.0",
     "tomli; python_version < '3.11'",
 ]
-release = [
-    "zest.releaser[recommended]",
-    "zestreleaser.towncrier",
-    "zest.pocompile",
-]
 
 [dependency-groups]
 dev = [
@@ -250,7 +245,3 @@ ignore = [
     ".gitattributes",
     "news/**",
 ]
-
-[tool.zest-releaser]
-# fullrelease makes the tag; the release workflow uploads to PyPI.
-release = false
