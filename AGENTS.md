@@ -121,13 +121,20 @@ the version, change the checksum with it.
   jobs after it. A re-run uses the files of the same run: before you go
   on, check that the sha256 of each file that PyPI has already is the one
   of the file in the `dist` artifact of the run. To fix the release itself, release the next version.
+  Do not build the files again for a release that stopped half way:
+  building the same commit again gives other sha256 for the wheel and the
+  sdist, and `skip-existing` does not check that they match. Use the
+  `dist` artifact of the run that stopped.
 - If a re-run of `github-release` fails because the release already
   exists, add the missing files to it with
   `gh release upload <version> <files> --clobber` (the files of the
   `dist` artifact and their `.sigstore.json` of the `signatures` artifact
   of the run), or delete the GitHub Release and re-run the job.
 - If `push-development` failed, re-run it, or set the development version
-  by hand as its log says.
+  by hand as its log says: on an up-to-date `main`, run
+  `uv run --no-project --python 3.12 --with packaging .github/scripts/release.py back-to-development <version>`,
+  commit `pyproject.toml` with the message
+  "Back to development: <the printed version without .dev0>" and push.
 
 ### Settings needed once
 

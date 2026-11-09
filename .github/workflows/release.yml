@@ -393,9 +393,10 @@ jobs:
           main=$(git ls-remote origin refs/heads/main | cut -f1)
           if [ "$main" != "$SHA" ]; then
             echo "::error::main is at $main, not at the release commit $SHA. The release is done; set the development version by hand."
-            echo "On an up-to-date main: run '.github/scripts/release.py back-to-development $VERSION'"
-            echo "(it needs the packaging distribution), commit pyproject.toml with the"
-            echo "message 'Back to development: <the printed version without .dev0>' and push."
+            echo "On an up-to-date main, run"
+            echo "  uv run --no-project --python 3.12 --with packaging .github/scripts/release.py back-to-development $VERSION"
+            echo "commit pyproject.toml with the message"
+            echo "'Back to development: <the printed version without .dev0>' and push."
             exit 1
           fi
       - name: Take the commit from the bundle
