@@ -1,9 +1,3 @@
-def test_version():
-    import c2.transform.ooxml
-
-    assert c2.transform.ooxml.__version__ == "1.0.0b1.dev0"
-
-
 def test_version_is_the_one_of_the_distribution():
     from c2.transform.ooxml import __version__
     from importlib.metadata import version
