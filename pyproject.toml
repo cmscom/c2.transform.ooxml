@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "c2.transform.ooxml"
-version = "1.0.0b1.dev0"
+version = "1.0.0a1.dev0"
 description = "Make Office Open XML files searchable in Plone"
 readme = "README.md"
 license = {text = "GPL version 2 or later"}
