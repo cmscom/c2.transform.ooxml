@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "c2.transform.ooxml"
-version = "1.0.0b1.dev0"
+version = "1.0.0a1.dev0"
 description = "Make Office Open XML files searchable in Plone"
 readme = "README.md"
 license = {text = "GPL version 2 or later"}
@@ -50,17 +50,15 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "horse-with-no-namespace",
+    # packaging and tomli: .github/scripts/release.py, which a test imports
+    "packaging",
     "plone.api",
     "plone.app.contenttypes",
     "plone.app.testing",
     "pytest",
     "pytest-cov",
     "pytest-plone>=0.5.0",
-]
-release = [
-    "zest.releaser[recommended]",
-    "zestreleaser.towncrier",
-    "zest.pocompile",
+    "tomli; python_version < '3.11'",
 ]
 
 [dependency-groups]
@@ -219,6 +217,8 @@ module = [
     "Products.PortalTransforms.interfaces",
     "Products.PortalTransforms.TransformEngine",
     "pytest_plone",
+    # Only on Python 3.10, for .github/scripts/release.py
+    "tomli",
     "transaction",
     "zope.component",
     "zope.configuration.config",
@@ -245,7 +245,3 @@ ignore = [
     ".gitattributes",
     "news/**",
 ]
-
-[tool.zest-releaser]
-# fullrelease makes the tag; the release workflow uploads to PyPI.
-release = false
